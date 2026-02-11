@@ -1,0 +1,5 @@
+{
+  "buildCommand": "echo 'Server project - no build needed'",
+  "outputDirectory": "client",
+  "framework": null
+}
