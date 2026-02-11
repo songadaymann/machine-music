@@ -1,9 +1,9 @@
 {
   "name": "the-music-place",
-  "module": "server/index.ts",
   "type": "module",
   "private": true,
   "scripts": {
+    "build": "echo 'No build step needed'",
     "dev": "bun run --hot server/index.ts",
     "start": "bun run server/index.ts",
     "test:bot": "bun run test/bot.ts",
