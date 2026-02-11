@@ -1,0 +1,23 @@
+{
+  "name": "the-music-place",
+  "module": "server/index.ts",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "bun run --hot server/index.ts",
+    "start": "bun run server/index.ts",
+    "test:bot": "bun run test/bot.ts",
+    "test:orchestra": "bun run test/orchestra.ts",
+    "test:curl": "bash test/curl-test.sh"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/node": "^25.2.3"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "hono": "^4.11.9"
+  }
+}

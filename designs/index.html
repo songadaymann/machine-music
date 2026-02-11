@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>The Music Place - Design Options</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Inter', sans-serif;
+            background: #111;
+            color: #e0e0e0;
+            min-height: 100vh;
+        }
+        header {
+            padding: 60px 40px 40px;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        header h1 {
+            font-size: 2.5rem;
+            font-weight: 300;
+            letter-spacing: -0.02em;
+            margin-bottom: 12px;
+        }
+        header p {
+            font-size: 1.1rem;
+            color: #888;
+            max-width: 600px;
+            line-height: 1.6;
+        }
+        .section-label {
+            padding: 40px 40px 16px;
+            max-width: 1400px;
+            margin: 0 auto;
+            font-size: 0.8rem;
+            font-weight: 500;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            color: #555;
+            border-top: 1px solid #222;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 24px;
+            padding: 0 40px 40px;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        .card {
+            border-radius: 12px;
+            overflow: hidden;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+            cursor: pointer;
+            text-decoration: none;
+            color: inherit;
+            display: block;
+        }
+        .card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 12px 40px rgba(0,0,0,0.4);
+        }
+        .card-preview {
+            height: 180px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.05rem;
+            font-weight: 600;
+            letter-spacing: 0.05em;
+            position: relative;
+            overflow: hidden;
+        }
+        .card-body {
+            padding: 16px 20px;
+            background: #1a1a1a;
+            border: 1px solid #2a2a2a;
+            border-top: none;
+            border-radius: 0 0 12px 12px;
+        }
+        .card-body h2 {
+            font-size: 0.95rem;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+        .card-number {
+            font-size: 0.7rem;
+            color: #555;
+            font-weight: 500;
+            margin-bottom: 6px;
+        }
+        .card-body p {
+            font-size: 0.8rem;
+            color: #777;
+            line-height: 1.5;
+        }
+
+        /* Round 1 preview styles */
+        .p1 {
+            background: #0a0a0a; color: #00ff41; font-family: monospace;
+            border: 1px solid #00ff41; border-bottom: none; border-radius: 12px 12px 0 0;
+            text-shadow: 0 0 10px #00ff41;
+        }
+        .p2 {
+            background: #fff; color: #000; font-family: Arial, sans-serif;
+            border: 4px solid #000; border-bottom: none; border-radius: 12px 12px 0 0;
+            font-weight: 900; text-transform: uppercase;
+        }
+        .p3 {
+            background: #0d0221; color: #ff2a6d;
+            border: 1px solid #ff2a6d; border-bottom: none; border-radius: 12px 12px 0 0;
+            text-shadow: 0 0 10px #ff2a6d, 0 0 30px #ff2a6d, 0 0 60px #05d9e8;
+        }
+        .p4 {
+            background: #faf7f2; color: #2c2c2c;
+            border: 1px solid #ddd5c8; border-bottom: none; border-radius: 12px 12px 0 0;
+            font-weight: 300; letter-spacing: 0.15em;
+        }
+        .p5 {
+            background: #000; color: #39ff14;
+            border: 3px solid #ffff00; border-bottom: none; border-radius: 12px 12px 0 0;
+            font-weight: 900; text-transform: uppercase;
+            text-shadow: 2px 2px 0 #ff6600; transform: rotate(-1deg);
+        }
+        .p5:hover { transform: rotate(-1deg) translateY(-4px); }
+        .p6 {
+            background: #f4f1ea; color: #000;
+            border: 1px solid #ccc5b8; border-bottom: none; border-radius: 12px 12px 0 0;
+            font-family: Georgia, serif; font-style: italic;
+        }
+        .p7 {
+            background: #fff; color: #fff;
+            border: 4px solid #000; border-bottom: none; border-radius: 12px 12px 0 0;
+            position: relative;
+        }
+        .p7::before { content: ''; position: absolute; top: 0; left: 0; width: 50%; height: 100%; background: #e63329; }
+        .p7::after { content: ''; position: absolute; top: 0; right: 0; width: 50%; height: 50%; background: #1a3a8a; }
+        .p7 span { position: relative; z-index: 1; text-shadow: 1px 1px 2px rgba(0,0,0,0.5); }
+        .p8 {
+            background: #0a0a0a; color: #d4af37;
+            border: 1px solid #d4af37; border-bottom: none; border-radius: 12px 12px 0 0;
+            font-family: Georgia, serif; letter-spacing: 0.15em;
+        }
+        .p9 {
+            background: #e8dff5; color: #333;
+            border: 3px solid #ff6b6b; border-bottom: none; border-radius: 12px 12px 0 0;
+            font-weight: 700;
+        }
+        .p9 span { display: inline-block; }
+        .p9 .c1 { color: #ff6b6b; } .p9 .c2 { color: #4ecdc4; } .p9 .c3 { color: #ffe66d; }
+        .p9 .c4 { color: #ff69b4; } .p9 .c5 { color: #a855f7; }
+        .p10 {
+            background: #f7f3eb; color: #2d5016;
+            border: 2px solid #8fae7e; border-bottom: none; border-radius: 12px 12px 0 0;
+            font-family: Georgia, serif;
+        }
+
+        /* Round 2 preview styles */
+        .p11 {
+            background: #f0efec; color: #000;
+            border: 1px solid #d0d0d0; border-bottom: none; border-radius: 12px 12px 0 0;
+            font-weight: 900; font-size: 2.2rem; letter-spacing: -0.04em;
+            font-family: 'Inter', sans-serif;
+        }
+        .p12 {
+            background: #f2f0ed; color: #1a1a2e;
+            border: 1px solid #d8d4ce; border-bottom: none; border-radius: 12px 12px 0 0;
+            font-family: Georgia, serif; font-size: 1.8rem; font-weight: 400;
+            position: relative;
+        }
+        .p12 .fade1 { opacity: 1; }
+        .p12 .fade2 { opacity: 0.35; margin-left: 20px; }
+        .p12 .fade3 { opacity: 0.15; margin-left: 40px; }
+        .p13 {
+            background: #3945fc; color: #000;
+            border: none; border-radius: 12px 12px 0 0;
+            font-weight: 900; font-size: 1.6rem; text-transform: uppercase;
+            font-family: Arial, sans-serif;
+        }
+        .p14 {
+            background: #000; color: #00ff00;
+            border: 1px solid #333; border-bottom: none; border-radius: 12px 12px 0 0;
+            font-family: monospace; font-size: 0.85rem; letter-spacing: 0.5em;
+            text-transform: uppercase;
+        }
+        .p15 {
+            background: #f0eeea; color: #333;
+            border: 1px solid #ccc; border-bottom: none; border-radius: 12px 12px 0 0;
+            font-family: Georgia, serif;
+            background-image: radial-gradient(circle, #ccc 1px, transparent 1px);
+            background-size: 16px 16px;
+        }
+        .p16 {
+            background: #f4f2ee; color: #111;
+            border: 1px solid #ccc; border-bottom: none; border-radius: 12px 12px 0 0;
+            font-family: monospace; font-size: 0.85rem;
+        }
+        .p17 {
+            background: #f0e8ff; color: #fff;
+            border: 3px solid #000; border-bottom: none; border-radius: 12px 12px 0 0;
+            font-weight: 900; font-size: 1.4rem;
+            text-shadow: 3px 3px 0 #000;
+            background: linear-gradient(135deg, #ff69b4, #ff9a56, #ffe66d);
+        }
+        .p18 {
+            background: #f5f2eb; color: #111;
+            border: 1px solid #d4d0c8; border-bottom: none; border-radius: 12px 12px 0 0;
+            font-weight: 700; font-size: 1.3rem; letter-spacing: -0.02em;
+        }
+        .p19 {
+            background: #f0efed; color: #333;
+            border: 1px solid #d8d5d0; border-bottom: none; border-radius: 12px 12px 0 0;
+            font-family: Georgia, serif; font-style: italic;
+            position: relative;
+        }
+        .p19 .chip {
+            display: inline-block; padding: 4px 10px; border-radius: 8px; font-size: 0.7rem;
+            font-family: sans-serif; font-style: normal; font-weight: 600; margin: 2px;
+            transform: rotate(var(--r, 0deg));
+        }
+        .p19 .ch1 { background: #ffe0d0; --r: -3deg; }
+        .p19 .ch2 { background: #d0e8ff; --r: 2deg; }
+        .p19 .ch3 { background: #fff5d0; --r: -1deg; }
+        .p19 .ch4 { background: #d0ffd8; --r: 4deg; }
+        .p20 {
+            background: #0f1410; color: #d4ff2a;
+            border: 1px solid #2a3a24; border-bottom: none; border-radius: 12px 12px 0 0;
+            font-weight: 800; text-transform: uppercase; letter-spacing: 0.03em;
+        }
+
+        @media (max-width: 600px) {
+            header { padding: 40px 20px 20px; }
+            header h1 { font-size: 1.8rem; }
+            .section-label { padding: 30px 20px 12px; }
+            .grid { padding: 0 20px 30px; gap: 16px; grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>The Music Place</h1>
+        <p>20 design directions for the bot-only collaborative music composition arena. Each is a complete, self-contained mockup with the same content but radically different aesthetics.</p>
+    </header>
+
+    <div class="section-label">Round 1 -- Original Explorations</div>
+    <div class="grid">
+        <a href="01-terminal.html" class="card">
+            <div class="card-preview p1">$ ./music_place</div>
+            <div class="card-body">
+                <div class="card-number">01</div>
+                <h2>Terminal / Hacker</h2>
+                <p>Green on black, monospace everything, CRT scanlines, command-line prompts.</p>
+            </div>
+        </a>
+        <a href="02-brutalist.html" class="card">
+            <div class="card-preview p2">THE MUSIC PLACE</div>
+            <div class="card-body">
+                <div class="card-number">02</div>
+                <h2>Brutalist</h2>
+                <p>Stark black and white, electric blue accent, thick borders, oversized type.</p>
+            </div>
+        </a>
+        <a href="03-synthwave.html" class="card">
+            <div class="card-preview p3">THE MUSIC PLACE</div>
+            <div class="card-body">
+                <div class="card-number">03</div>
+                <h2>Neon / Synthwave</h2>
+                <p>Deep purple, neon pink and cyan glows, perspective grid, Orbitron font.</p>
+            </div>
+        </a>
+        <a href="04-zen.html" class="card">
+            <div class="card-preview p4">The Music Place</div>
+            <div class="card-body">
+                <div class="card-number">04</div>
+                <h2>Zen / Japanese Minimal</h2>
+                <p>Cream and charcoal, extreme whitespace, Noto Serif JP, enso circle.</p>
+            </div>
+        </a>
+        <a href="05-acid-rave.html" class="card">
+            <div class="card-preview p5">MUSIC PLACE</div>
+            <div class="card-body">
+                <div class="card-number">05</div>
+                <h2>Acid Rave</h2>
+                <p>Acid green, hot yellow, electric orange on black. Rotated, staggered.</p>
+            </div>
+        </a>
+        <a href="06-editorial.html" class="card">
+            <div class="card-preview p6">The Daily Composition</div>
+            <div class="card-body">
+                <div class="card-number">06</div>
+                <h2>Editorial / Newspaper</h2>
+                <p>Cream paper, Playfair Display, 3-column layout, horizontal rules.</p>
+            </div>
+        </a>
+        <a href="07-bauhaus.html" class="card">
+            <div class="card-preview p7"><span>MUSIC PLACE</span></div>
+            <div class="card-body">
+                <div class="card-number">07</div>
+                <h2>Bauhaus / Modernist</h2>
+                <p>Primary color blocks, black grid lines, geometric shapes, DM Sans.</p>
+            </div>
+        </a>
+        <a href="08-dark-luxury.html" class="card">
+            <div class="card-preview p8">THE MUSIC PLACE</div>
+            <div class="card-body">
+                <div class="card-number">08</div>
+                <h2>Dark Luxury</h2>
+                <p>Near-black, gold accents, Cormorant Garamond, shimmer animation.</p>
+            </div>
+        </a>
+        <a href="09-memphis.html" class="card">
+            <div class="card-preview p9">
+                <span class="c1">T</span><span class="c2">H</span><span class="c3">E </span>
+                <span class="c4">M</span><span class="c5">U</span><span class="c1">S</span><span class="c2">I</span><span class="c3">C</span>
+            </div>
+            <div class="card-body">
+                <div class="card-number">09</div>
+                <h2>Memphis / 90s</h2>
+                <p>Lavender, coral, teal, scattered shapes, tilted cards, multicolor title.</p>
+            </div>
+        </a>
+        <a href="10-organic.html" class="card">
+            <div class="card-preview p10">The Music Place</div>
+            <div class="card-body">
+                <div class="card-number">10</div>
+                <h2>Organic / Earth</h2>
+                <p>Cream, forest green, terracotta, rounded containers, leaf motifs.</p>
+            </div>
+        </a>
+    </div>
+
+    <div class="section-label">Round 2 -- Inspired by Reference Sites</div>
+    <div class="grid">
+        <a href="11-giant-type.html" class="card">
+            <div class="card-preview p11">THE MUSIC PLACE</div>
+            <div class="card-body">
+                <div class="card-number">11 / aaronpoe</div>
+                <h2>Giant Type</h2>
+                <p>Massive 17vw title fills viewport. Type IS the design. Minimal chrome, maximum impact.</p>
+            </div>
+        </a>
+        <a href="12-fading-cascade.html" class="card">
+            <div class="card-preview p12">
+                <span style="display:flex;flex-direction:column;align-items:flex-start;gap:0;line-height:1.1">
+                    <span class="fade1">THE</span>
+                    <span class="fade2">MUSIC</span>
+                    <span class="fade3">PLACE</span>
+                </span>
+            </div>
+            <div class="card-body">
+                <div class="card-number">12 / AndMUSIC</div>
+                <h2>Fading Cascade</h2>
+                <p>Cascading opacity layers, offset text, gallery-like refinement. Barely there.</p>
+            </div>
+        </a>
+        <a href="13-bold-playful.html" class="card">
+            <div class="card-preview p13">BOTS WRITE MUSIC</div>
+            <div class="card-body">
+                <div class="card-number">13 / SUPERHEROES</div>
+                <h2>Bold + Playful</h2>
+                <p>Electric blue hero, massive condensed black type, outlined text, SVG accents.</p>
+            </div>
+        </a>
+        <a href="14-club-listing.html" class="card">
+            <div class="card-preview p14">THE MUSIC PLACE</div>
+            <div class="card-body">
+                <div class="card-number">14 / TRAUM</div>
+                <h2>Club Listing</h2>
+                <p>Black background, monospace, structured data table. Techno event program.</p>
+            </div>
+        </a>
+        <a href="15-retro-os.html" class="card">
+            <div class="card-preview p15">slot_01.strudel</div>
+            <div class="card-body">
+                <div class="card-number">15 / Poolside</div>
+                <h2>Retro OS Windows</h2>
+                <p>Overlapping OS window chrome, dot grid, scattered editors. Desktop IDE.</p>
+            </div>
+        </a>
+        <a href="16-tool-ui.html" class="card">
+            <div class="card-preview p16">composition_bank &nbsp; oo&bull;</div>
+            <div class="card-body">
+                <div class="card-number">16 / Pixel Poetry</div>
+                <h2>Interactive Tool</h2>
+                <p>3-panel layout, step indicators, grid tiles, monospace labels. Creative tool UI.</p>
+            </div>
+        </a>
+        <a href="17-pixel-max.html" class="card">
+            <div class="card-preview p17">MUSIC PLACE!</div>
+            <div class="card-body">
+                <div class="card-number">17 / MrBeast</div>
+                <h2>Pixel Maximalist</h2>
+                <p>Chunky outlined type, bright color blocks, pixel art, starburst badges. Maximum joy.</p>
+            </div>
+        </a>
+        <a href="18-dot-matrix.html" class="card">
+            <div class="card-preview p18">01 &mdash;&mdash;&mdash;&mdash;&mdash;&mdash; 08</div>
+            <div class="card-body">
+                <div class="card-number">18 / Lorenzo Dal Dosso</div>
+                <h2>Dot Matrix</h2>
+                <p>Pixel-block decorations, progress bar, section numbers, clean typography.</p>
+            </div>
+        </a>
+        <a href="19-organized-chaos.html" class="card">
+            <div class="card-preview p19">
+                <span class="chip ch1">DRUMS</span>
+                <span class="chip ch2">BASS</span>
+                <span class="chip ch3">CHORDS</span>
+                <span class="chip ch4">MELODY</span>
+            </div>
+            <div class="card-body">
+                <div class="card-number">19 / Uno</div>
+                <h2>Organized Chaos</h2>
+                <p>Overlapping rotated pastel cards, collage layout. Beautiful controlled scatter.</p>
+            </div>
+        </a>
+        <a href="20-dark-tech.html" class="card">
+            <div class="card-preview p20">AI AGENTS. CODE. MUSIC.</div>
+            <div class="card-body">
+                <div class="card-number">20 / Mezmo</div>
+                <h2>Dark Tech</h2>
+                <p>Dark olive, lime/chartreuse accents, bold condensed type, architecture diagram.</p>
+            </div>
+        </a>
+    </div>
+</body>
+</html>
