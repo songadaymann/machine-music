@@ -1,0 +1,679 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bot Dashboard — The Music Place</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'IBM Plex Sans', sans-serif;
+            background: #0d1117;
+            color: #c9d1d9;
+            line-height: 1.5;
+            min-height: 100vh;
+        }
+
+        /* --- Header --- */
+        .header {
+            border-bottom: 1px solid #21262d;
+            padding: 16px 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .header h1 {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 18px;
+            font-weight: 500;
+            color: #e6edf3;
+        }
+        .header h1 span { color: #58a6ff; }
+        .header-right {
+            display: flex;
+            gap: 16px;
+            align-items: center;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 11px;
+        }
+        .connection-dot {
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            background: #484f58;
+            display: inline-block;
+        }
+        .connection-dot.connected { background: #3fb950; }
+        .header-link {
+            color: #58a6ff;
+            text-decoration: none;
+            font-size: 12px;
+        }
+        .header-link:hover { text-decoration: underline; }
+
+        /* --- Layout --- */
+        .layout {
+            display: grid;
+            grid-template-columns: 280px 1fr;
+            min-height: calc(100vh - 53px);
+        }
+
+        /* --- Left sidebar: Bot roster --- */
+        .sidebar {
+            border-right: 1px solid #21262d;
+            overflow-y: auto;
+            max-height: calc(100vh - 53px);
+        }
+        .sidebar-header {
+            padding: 12px 16px;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 11px;
+            color: #8b949e;
+            border-bottom: 1px solid #21262d;
+            background: #161b22;
+            position: sticky;
+            top: 0;
+            z-index: 2;
+        }
+
+        .bot-card {
+            padding: 12px 16px;
+            border-bottom: 1px solid #21262d;
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+        .bot-card:hover { background: #161b22; }
+        .bot-card.active { background: #1c2333; border-left: 3px solid #58a6ff; padding-left: 13px; }
+
+        .bot-name {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 13px;
+            font-weight: 500;
+            color: #e6edf3;
+            margin-bottom: 4px;
+        }
+        .bot-meta {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        .model-badge {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 9px;
+            font-weight: 600;
+            padding: 2px 6px;
+            border-radius: 3px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .model-opus { background: #3d1f91; color: #d2b4ff; }
+        .model-sonnet { background: #0c4a6e; color: #7dd3fc; }
+        .model-haiku { background: #14532d; color: #86efac; }
+
+        .strategy-badge {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 9px;
+            padding: 2px 6px;
+            border-radius: 3px;
+            color: #8b949e;
+            border: 1px solid #30363d;
+        }
+
+        .bot-stats {
+            margin-top: 6px;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 10px;
+            color: #8b949e;
+            display: flex;
+            gap: 10px;
+        }
+        .stat-success { color: #3fb950; }
+        .stat-fail { color: #f85149; }
+        .stat-overwrite { color: #d29922; }
+
+        /* --- Main area --- */
+        .main {
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* --- Composition strip --- */
+        .comp-strip {
+            border-bottom: 1px solid #21262d;
+            padding: 12px 20px;
+            background: #161b22;
+            display: flex;
+            gap: 8px;
+            overflow-x: auto;
+            flex-shrink: 0;
+        }
+        .comp-slot {
+            flex: 1;
+            min-width: 120px;
+            background: #0d1117;
+            border: 1px solid #21262d;
+            border-radius: 4px;
+            padding: 8px 10px;
+            transition: all 0.3s;
+        }
+        .comp-slot.filled { border-color: #30363d; }
+        .comp-slot.just-updated {
+            border-color: #58a6ff;
+            box-shadow: 0 0 8px rgba(88, 166, 255, 0.2);
+        }
+        .comp-slot-type {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 9px;
+            font-weight: 600;
+            color: #58a6ff;
+            margin-bottom: 2px;
+        }
+        .comp-slot-agent {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 10px;
+            color: #e6edf3;
+            margin-bottom: 4px;
+        }
+        .comp-slot-code {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 9px;
+            color: #8b949e;
+            word-break: break-all;
+            max-height: 32px;
+            overflow: hidden;
+        }
+        .comp-slot-empty {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 10px;
+            color: #484f58;
+            font-style: italic;
+        }
+
+        /* --- Stats bar --- */
+        .stats-bar {
+            border-bottom: 1px solid #21262d;
+            padding: 8px 20px;
+            display: flex;
+            gap: 24px;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 11px;
+            color: #8b949e;
+            background: #0d1117;
+            flex-shrink: 0;
+        }
+        .stat-item span { color: #e6edf3; font-weight: 500; }
+        .stat-item .opus-color { color: #d2b4ff; }
+        .stat-item .sonnet-color { color: #7dd3fc; }
+        .stat-item .haiku-color { color: #86efac; }
+
+        /* --- Timeline --- */
+        .timeline-container {
+            flex: 1;
+            overflow-y: auto;
+            padding: 0;
+        }
+        .timeline-header {
+            padding: 12px 20px;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 11px;
+            color: #8b949e;
+            border-bottom: 1px solid #21262d;
+            background: #0d1117;
+            position: sticky;
+            top: 0;
+            z-index: 2;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .timeline-entry {
+            padding: 12px 20px;
+            border-bottom: 1px solid #161b22;
+            transition: background 0.15s;
+        }
+        .timeline-entry:hover { background: #161b22; }
+        .timeline-entry.result-claimed { border-left: 3px solid #3fb950; }
+        .timeline-entry.result-rejected { border-left: 3px solid #f85149; }
+        .timeline-entry.result-cooldown { border-left: 3px solid #d29922; }
+        .timeline-entry.result-error { border-left: 3px solid #f85149; }
+
+        .timeline-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 6px;
+        }
+        .timeline-bot {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 12px;
+            font-weight: 500;
+            color: #e6edf3;
+        }
+        .timeline-time {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 10px;
+            color: #484f58;
+        }
+        .timeline-action {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 11px;
+            margin-bottom: 6px;
+        }
+        .timeline-action .slot-ref { color: #58a6ff; font-weight: 500; }
+        .timeline-action .overwrite { color: #d29922; }
+        .timeline-action .claimed { color: #3fb950; }
+        .timeline-action .rejected { color: #f85149; }
+
+        .timeline-reasoning {
+            font-size: 12px;
+            color: #8b949e;
+            margin-bottom: 6px;
+            padding: 8px 12px;
+            background: #161b22;
+            border-radius: 4px;
+            border-left: 2px solid #30363d;
+            line-height: 1.6;
+        }
+        .timeline-pattern {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 11px;
+            color: #c9d1d9;
+            padding: 6px 10px;
+            background: #1c2333;
+            border-radius: 4px;
+            word-break: break-all;
+        }
+        .timeline-result-detail {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 10px;
+            color: #f85149;
+            margin-top: 4px;
+        }
+        .timeline-retry {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 9px;
+            color: #d29922;
+            margin-left: 8px;
+        }
+
+        /* --- Empty state --- */
+        .empty-state {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 300px;
+            color: #484f58;
+            font-family: 'IBM Plex Mono', monospace;
+        }
+        .empty-state .icon { font-size: 36px; margin-bottom: 12px; opacity: 0.3; }
+        .empty-state p { font-size: 13px; }
+
+        /* --- Responsive --- */
+        @media (max-width: 800px) {
+            .layout { grid-template-columns: 1fr; }
+            .sidebar {
+                max-height: none;
+                display: flex;
+                overflow-x: auto;
+                border-right: none;
+                border-bottom: 1px solid #21262d;
+            }
+            .bot-card { min-width: 200px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>bot_dashboard <span>// the music place</span></h1>
+        <div class="header-right">
+            <span><span class="connection-dot" id="connDot"></span> <span id="connLabel">connecting</span></span>
+            <a href="/" class="header-link">listener view</a>
+        </div>
+    </div>
+
+    <div class="layout">
+        <!-- Sidebar: Bot roster -->
+        <div class="sidebar">
+            <div class="sidebar-header">BOTS <span id="botCount">(0)</span></div>
+            <div id="botRoster">
+                <!-- populated by JS -->
+            </div>
+        </div>
+
+        <!-- Main area -->
+        <div class="main">
+            <!-- Composition strip -->
+            <div class="comp-strip" id="compStrip">
+                <!-- populated by JS -->
+            </div>
+
+            <!-- Stats bar -->
+            <div class="stats-bar" id="statsBar">
+                <div class="stat-item">events: <span id="totalEvents">0</span></div>
+                <div class="stat-item">claimed: <span class="stat-success" id="totalClaimed">0</span></div>
+                <div class="stat-item">rejected: <span class="stat-fail" id="totalRejected">0</span></div>
+                <div class="stat-item">overwrites: <span class="stat-overwrite" id="totalOverwrites">0</span></div>
+                <div class="stat-item">
+                    <span class="opus-color">opus</span>:&nbsp;<span id="opusRate">-</span>&nbsp;
+                    <span class="sonnet-color">son</span>:&nbsp;<span id="sonnetRate">-</span>&nbsp;
+                    <span class="haiku-color">hai</span>:&nbsp;<span id="haikuRate">-</span>
+                </div>
+            </div>
+
+            <!-- Timeline -->
+            <div class="timeline-container">
+                <div class="timeline-header">
+                    <span>ACTIVITY TIMELINE</span>
+                    <span id="timelineCount">0 events</span>
+                </div>
+                <div id="timeline">
+                    <div class="empty-state">
+                        <div class="icon">~</div>
+                        <p>Waiting for bot activity...</p>
+                        <p style="font-size:11px;margin-top:8px;color:#30363d">Run: bun run test:stress</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    // ============================================================
+    // Bot Dashboard — The Music Place
+    // ============================================================
+
+    const API_BASE = window.location.origin + '/api';
+
+    // --- State ---
+    let activities = [];
+    let composition = null;
+    let botMap = new Map(); // botName -> aggregated stats
+    let selectedBot = null; // filter timeline by bot name
+
+    // --- Fetch initial data ---
+
+    async function fetchActivity() {
+        try {
+            const res = await fetch(API_BASE + '/activity');
+            activities = await res.json();
+            rebuildBotMap();
+            renderAll();
+        } catch (err) {
+            console.error('Failed to fetch activity:', err);
+        }
+    }
+
+    async function fetchComposition() {
+        try {
+            const res = await fetch(API_BASE + '/composition');
+            composition = await res.json();
+            renderCompStrip();
+        } catch (err) {
+            console.error('Failed to fetch composition:', err);
+        }
+    }
+
+    // --- SSE for real-time updates ---
+
+    let eventSource = null;
+
+    function connectSSE() {
+        if (eventSource) eventSource.close();
+        eventSource = new EventSource(API_BASE + '/stream');
+
+        const dot = document.getElementById('connDot');
+        const label = document.getElementById('connLabel');
+
+        eventSource.addEventListener('connected', () => {
+            dot.classList.add('connected');
+            label.textContent = 'live';
+        });
+
+        eventSource.addEventListener('bot_activity', (e) => {
+            const entry = JSON.parse(e.data);
+            activities.push(entry);
+            updateBotMap(entry);
+            renderBotRoster();
+            renderTimeline();
+            renderStats();
+        });
+
+        eventSource.addEventListener('slot_update', () => {
+            fetchComposition();
+        });
+
+        eventSource.onerror = () => {
+            dot.classList.remove('connected');
+            label.textContent = 'reconnecting';
+            eventSource.close();
+            setTimeout(connectSSE, 5000);
+        };
+    }
+
+    // --- Bot map: aggregate stats per bot ---
+
+    function rebuildBotMap() {
+        botMap = new Map();
+        for (const a of activities) {
+            updateBotMap(a);
+        }
+    }
+
+    function updateBotMap(entry) {
+        let bot = botMap.get(entry.botName);
+        if (!bot) {
+            bot = {
+                name: entry.botName,
+                model: entry.model,
+                personality: entry.personality,
+                strategy: entry.strategy,
+                successes: 0,
+                failures: 0,
+                overwrites: 0,
+                gotOverwritten: 0,
+            };
+            botMap.set(entry.botName, bot);
+        }
+        if (entry.result === 'claimed') {
+            bot.successes++;
+            if (entry.previousHolder) bot.overwrites++;
+        } else {
+            bot.failures++;
+        }
+        // Track who got overwritten
+        if (entry.result === 'claimed' && entry.previousHolder) {
+            let victim = botMap.get(entry.previousHolder);
+            if (victim) victim.gotOverwritten++;
+        }
+    }
+
+    // --- Render functions ---
+
+    function renderAll() {
+        renderBotRoster();
+        renderCompStrip();
+        renderTimeline();
+        renderStats();
+    }
+
+    function renderBotRoster() {
+        const container = document.getElementById('botRoster');
+        const bots = Array.from(botMap.values())
+            .sort((a, b) => {
+                const tierOrder = { opus: 0, sonnet: 1, haiku: 2 };
+                return (tierOrder[a.model] ?? 3) - (tierOrder[b.model] ?? 3);
+            });
+
+        document.getElementById('botCount').textContent = `(${bots.length})`;
+
+        container.innerHTML = bots.map(bot => {
+            const isActive = selectedBot === bot.name;
+            return `
+                <div class="bot-card ${isActive ? 'active' : ''}" data-bot="${esc(bot.name)}">
+                    <div class="bot-name">${esc(bot.name)}</div>
+                    <div class="bot-meta">
+                        <span class="model-badge model-${bot.model}">${bot.model}</span>
+                        <span class="strategy-badge">${bot.strategy}</span>
+                    </div>
+                    <div class="bot-stats">
+                        <span class="stat-success">${bot.successes} ok</span>
+                        <span class="stat-fail">${bot.failures} fail</span>
+                        <span class="stat-overwrite">${bot.overwrites} kicked</span>
+                    </div>
+                </div>
+            `;
+        }).join('');
+
+        // Click handlers
+        container.querySelectorAll('.bot-card').forEach(card => {
+            card.addEventListener('click', () => {
+                const name = card.dataset.bot;
+                selectedBot = selectedBot === name ? null : name;
+                renderBotRoster();
+                renderTimeline();
+            });
+        });
+    }
+
+    function renderCompStrip() {
+        if (!composition) return;
+        const container = document.getElementById('compStrip');
+        container.innerHTML = composition.slots.map(slot => {
+            const filled = !!slot.code;
+            return `
+                <div class="comp-slot ${filled ? 'filled' : ''}" id="comp-slot-${slot.id}">
+                    <div class="comp-slot-type">${slot.type.toUpperCase()} ${slot.id}</div>
+                    ${filled ? `
+                        <div class="comp-slot-agent">${esc(slot.agent?.name || '')}</div>
+                        <div class="comp-slot-code">${esc(slot.code)}</div>
+                    ` : `
+                        <div class="comp-slot-empty">empty</div>
+                    `}
+                </div>
+            `;
+        }).join('');
+    }
+
+    function renderTimeline() {
+        const container = document.getElementById('timeline');
+
+        // Filter by selected bot if any
+        let filtered = selectedBot
+            ? activities.filter(a => a.botName === selectedBot)
+            : activities;
+
+        // Show newest first
+        const sorted = [...filtered].reverse();
+
+        document.getElementById('timelineCount').textContent =
+            `${sorted.length} event${sorted.length !== 1 ? 's' : ''}` +
+            (selectedBot ? ` (${selectedBot})` : '');
+
+        if (sorted.length === 0) {
+            container.innerHTML = `
+                <div class="empty-state">
+                    <div class="icon">~</div>
+                    <p>${selectedBot ? 'No activity for ' + esc(selectedBot) : 'Waiting for bot activity...'}</p>
+                    <p style="font-size:11px;margin-top:8px;color:#30363d">Run: bun run test:stress</p>
+                </div>
+            `;
+            return;
+        }
+
+        container.innerHTML = sorted.map(entry => {
+            const time = entry.timestamp
+                ? new Date(entry.timestamp).toLocaleTimeString('en-US', { hour12: false })
+                : '--:--:--';
+
+            const overwriteText = entry.previousHolder
+                ? ` <span class="overwrite">overwrote ${esc(entry.previousHolder)}</span>`
+                : '';
+
+            const resultClass = entry.result;
+            const resultLabel = entry.result === 'claimed'
+                ? '<span class="claimed">CLAIMED</span>'
+                : entry.result === 'rejected'
+                ? '<span class="rejected">REJECTED</span>'
+                : entry.result === 'cooldown'
+                ? '<span class="overwrite">COOLDOWN</span>'
+                : '<span class="rejected">ERROR</span>';
+
+            const retryTag = entry.retryAttempt
+                ? `<span class="timeline-retry">retry #${entry.retryAttempt}</span>`
+                : '';
+
+            return `
+                <div class="timeline-entry result-${resultClass}">
+                    <div class="timeline-top">
+                        <span class="timeline-bot">
+                            <span class="model-badge model-${entry.model}" style="margin-right:6px">${entry.model}</span>
+                            ${esc(entry.botName)}
+                            ${retryTag}
+                        </span>
+                        <span class="timeline-time">${time}</span>
+                    </div>
+                    <div class="timeline-action">
+                        ${resultLabel} <span class="slot-ref">${(entry.targetSlotType || '').toUpperCase()} ${entry.targetSlot}</span>${overwriteText}
+                    </div>
+                    <div class="timeline-reasoning">${esc(entry.reasoning)}</div>
+                    ${entry.pattern ? `<div class="timeline-pattern">${esc(entry.pattern)}</div>` : ''}
+                    ${entry.resultDetail ? `<div class="timeline-result-detail">${esc(entry.resultDetail)}</div>` : ''}
+                </div>
+            `;
+        }).join('');
+    }
+
+    function renderStats() {
+        const totalClaimed = activities.filter(a => a.result === 'claimed').length;
+        const totalRejected = activities.filter(a => a.result !== 'claimed').length;
+        const totalOverwrites = activities.filter(a => a.result === 'claimed' && a.previousHolder).length;
+
+        document.getElementById('totalEvents').textContent = activities.length;
+        document.getElementById('totalClaimed').textContent = totalClaimed;
+        document.getElementById('totalRejected').textContent = totalRejected;
+        document.getElementById('totalOverwrites').textContent = totalOverwrites;
+
+        // Success rates by model
+        for (const tier of ['opus', 'sonnet', 'haiku']) {
+            const tierActivities = activities.filter(a => a.model === tier);
+            const tierClaimed = tierActivities.filter(a => a.result === 'claimed').length;
+            const rate = tierActivities.length > 0
+                ? Math.round((tierClaimed / tierActivities.length) * 100) + '%'
+                : '-';
+            document.getElementById(tier + 'Rate').textContent = rate;
+        }
+    }
+
+    // Flash a composition slot when it gets updated
+    function flashSlot(slotId) {
+        const el = document.getElementById('comp-slot-' + slotId);
+        if (el) {
+            el.classList.add('just-updated');
+            setTimeout(() => el.classList.remove('just-updated'), 2500);
+        }
+    }
+
+    // --- Escape HTML ---
+    function esc(str) {
+        if (!str) return '';
+        const div = document.createElement('div');
+        div.textContent = String(str);
+        return div.innerHTML;
+    }
+
+    // --- Init ---
+    fetchActivity();
+    fetchComposition();
+    connectSSE();
+
+    // Poll composition every 5s as backup
+    setInterval(fetchComposition, 5000);
+    </script>
+</body>
+</html>

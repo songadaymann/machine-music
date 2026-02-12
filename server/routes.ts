@@ -1,10 +1,86 @@
 // API routes for The Music Place
 
 import { Hono } from "hono";
-import { state } from "./state";
+import { randomUUID } from "crypto";
+import { state, type BotActivityEntry } from "./state";
 import { validateStrudelCode } from "./validator";
 
 const api = new Hono();
+
+const ACTIVITY_RESULTS = new Set<BotActivityEntry["result"]>([
+  "claimed",
+  "rejected",
+  "cooldown",
+  "error",
+]);
+
+const MAX_ACTIVITY_NAME = 64;
+const MAX_ACTIVITY_MODEL = 64;
+const MAX_ACTIVITY_PERSONALITY = 600;
+const MAX_ACTIVITY_STRATEGY = 64;
+const MAX_ACTIVITY_SLOT_TYPE = 32;
+const MAX_ACTIVITY_REASONING = 2000;
+const MAX_ACTIVITY_PATTERN = 280;
+const MAX_ACTIVITY_RESULT_DETAIL = 600;
+
+function isBoundedString(value: unknown, maxLen: number): value is string {
+  return typeof value === "string" && value.length <= maxLen;
+}
+
+function isNonEmptyBoundedString(value: unknown, maxLen: number): value is string {
+  return (
+    typeof value === "string" &&
+    value.trim().length > 0 &&
+    value.length <= maxLen
+  );
+}
+
+function validateActivityPayload(body: Partial<BotActivityEntry>): string | null {
+  if (!isNonEmptyBoundedString(body.model, MAX_ACTIVITY_MODEL)) {
+    return "invalid_model";
+  }
+  if (!isNonEmptyBoundedString(body.personality, MAX_ACTIVITY_PERSONALITY)) {
+    return "invalid_personality";
+  }
+  if (!isNonEmptyBoundedString(body.strategy, MAX_ACTIVITY_STRATEGY)) {
+    return "invalid_strategy";
+  }
+  if (!Number.isInteger(body.targetSlot) || body.targetSlot! < 0 || body.targetSlot! > 8) {
+    return "invalid_target_slot";
+  }
+  if (!isNonEmptyBoundedString(body.targetSlotType, MAX_ACTIVITY_SLOT_TYPE)) {
+    return "invalid_target_slot_type";
+  }
+  if (!isNonEmptyBoundedString(body.reasoning, MAX_ACTIVITY_REASONING)) {
+    return "invalid_reasoning";
+  }
+  if (!isBoundedString(body.pattern, MAX_ACTIVITY_PATTERN)) {
+    return "invalid_pattern";
+  }
+  if (!ACTIVITY_RESULTS.has(body.result as BotActivityEntry["result"])) {
+    return "invalid_result";
+  }
+  if (
+    body.resultDetail !== undefined &&
+    !isBoundedString(body.resultDetail, MAX_ACTIVITY_RESULT_DETAIL)
+  ) {
+    return "invalid_result_detail";
+  }
+  if (
+    body.previousHolder !== undefined &&
+    body.previousHolder !== null &&
+    !isBoundedString(body.previousHolder, MAX_ACTIVITY_NAME)
+  ) {
+    return "invalid_previous_holder";
+  }
+  if (
+    body.retryAttempt !== undefined &&
+    (!Number.isInteger(body.retryAttempt) || body.retryAttempt < 0 || body.retryAttempt > 9)
+  ) {
+    return "invalid_retry_attempt";
+  }
+  return null;
+}
 
 // --- Agent Registration ---
 
@@ -159,6 +235,83 @@ api.get("/leaderboard", (c) => {
   return c.json(leaderboard);
 });
 
+// --- Bot Activity Log (for dashboard) ---
+
+api.post("/activity", async (c) => {
+  const authHeader = c.req.header("Authorization");
+  if (!authHeader?.startsWith("Bearer ")) {
+    return c.json({ error: "unauthorized" }, 401);
+  }
+  const token = authHeader.slice(7);
+  const agent = state.getAgentByToken(token);
+  if (!agent) {
+    return c.json({ error: "invalid_token" }, 401);
+  }
+
+  const body = await c.req.json<Partial<BotActivityEntry>>();
+  const validationError = validateActivityPayload(body);
+  if (validationError) {
+    return c.json({ error: validationError }, 400);
+  }
+  if (
+    body.botName !== undefined &&
+    !isNonEmptyBoundedString(body.botName, MAX_ACTIVITY_NAME)
+  ) {
+    return c.json({ error: "invalid_bot_name" }, 400);
+  }
+  if (body.botName && body.botName !== agent.name) {
+    return c.json({ error: "bot_name_mismatch" }, 403);
+  }
+
+  const entry: BotActivityEntry = {
+    id: randomUUID(),
+    timestamp: new Date().toISOString(),
+    botName: agent.name,
+    model: body.model!,
+    personality: body.personality!,
+    strategy: body.strategy!,
+    targetSlot: body.targetSlot!,
+    targetSlotType: body.targetSlotType!,
+    reasoning: body.reasoning!,
+    pattern: body.pattern!,
+    result: body.result!,
+    resultDetail: body.resultDetail,
+    previousHolder: body.previousHolder,
+    retryAttempt: body.retryAttempt,
+  };
+
+  state.addBotActivity(entry);
+  return c.json({ ok: true, id: entry.id }, 201);
+});
+
+api.get("/activity", (c) => {
+  return c.json(state.getBotActivity());
+});
+
+api.delete("/activity", (c) => {
+  const adminKey = process.env.ACTIVITY_ADMIN_KEY;
+  const providedAdminKey = c.req.header("x-admin-key");
+  const hasValidAdminKey =
+    typeof adminKey === "string" &&
+    adminKey.length > 0 &&
+    providedAdminKey === adminKey;
+
+  if (!hasValidAdminKey) {
+    const authHeader = c.req.header("Authorization");
+    if (!authHeader?.startsWith("Bearer ")) {
+      return c.json({ error: "unauthorized" }, 401);
+    }
+    const token = authHeader.slice(7);
+    const agent = state.getAgentByToken(token);
+    if (!agent) {
+      return c.json({ error: "invalid_token" }, 401);
+    }
+  }
+
+  state.clearBotActivity();
+  return c.json({ ok: true });
+});
+
 // --- SSE Stream ---
 
 api.get("/stream", (c) => {
@@ -185,7 +338,7 @@ api.get("/stream", (c) => {
 
       state.addSSEListener(listener);
 
-      // Heartbeat every 30s to keep connection alive
+      // Heartbeat every 15s to keep connection alive through proxies
       const heartbeat = setInterval(() => {
         try {
           controller.enqueue(encoder.encode(`: heartbeat\n\n`));
@@ -193,7 +346,7 @@ api.get("/stream", (c) => {
           clearInterval(heartbeat);
           state.removeSSEListener(listener);
         }
-      }, 30_000);
+      }, 15_000);
     },
   });
 
@@ -203,6 +356,7 @@ api.get("/stream", (c) => {
       "Cache-Control": "no-cache",
       Connection: "keep-alive",
       "Access-Control-Allow-Origin": "*",
+      "X-Accel-Buffering": "no",       // Disable proxy buffering (Fly/nginx)
     },
   });
 });

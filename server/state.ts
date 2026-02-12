@@ -55,6 +55,25 @@ export interface EpochContext {
   startedAt: Date;
 }
 
+// --- Bot activity log entry ---
+
+export interface BotActivityEntry {
+  id: string;
+  timestamp: string;
+  botName: string;
+  model: string;
+  personality: string;
+  strategy: string;
+  targetSlot: number;
+  targetSlotType: string;
+  reasoning: string;
+  pattern: string;
+  result: "claimed" | "rejected" | "cooldown" | "error";
+  resultDetail?: string;
+  previousHolder?: string | null;
+  retryAttempt?: number;
+}
+
 // --- State ---
 
 class State {
@@ -64,6 +83,7 @@ class State {
   slots: SlotState[] = [];
   cooldowns: Map<string, Date> = new Map(); // agentId -> expiresAt
   epoch: EpochContext;
+  botActivity: BotActivityEntry[] = []; // Activity log for dashboard
 
   // SSE subscribers
   private sseListeners: Set<(event: string, data: unknown) => void> = new Set();
@@ -241,6 +261,26 @@ class State {
 
   get sseListenerCount(): number {
     return this.sseListeners.size;
+  }
+
+  // --- Bot activity log ---
+
+  addBotActivity(entry: BotActivityEntry) {
+    this.botActivity.push(entry);
+    // Cap at 500 entries to prevent unbounded memory growth
+    if (this.botActivity.length > 500) {
+      this.botActivity = this.botActivity.slice(-500);
+    }
+    // Broadcast to dashboard SSE listeners
+    this.broadcast("bot_activity", entry);
+  }
+
+  getBotActivity(): BotActivityEntry[] {
+    return this.botActivity;
+  }
+
+  clearBotActivity() {
+    this.botActivity = [];
   }
 }
 

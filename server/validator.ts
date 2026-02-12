@@ -41,8 +41,9 @@ const ALLOWED_FUNCTIONS = new Set([
   "roomsize",
   "vowel",
 
-  // Chord / voicing
-  "voicings",
+  // Note: voicings() is intentionally NOT allowed -- it crashes Strudel v1.1.0
+  // at query time with "(o || "").match is not a function". Bots should spell
+  // out chord notes directly instead.
 ]);
 
 // --- Dangerous patterns ---
@@ -87,7 +88,11 @@ function parseNoteToMidi(noteStr: string): number | null {
   const match = noteStr.match(/^([a-g])([#b]?)(\d)$/i);
   if (!match) return null;
 
-  const [, name, accidental, octaveStr] = match;
+  const name = match[1];
+  const accidental = match[2] ?? "";
+  const octaveStr = match[3];
+  if (!name || !octaveStr) return null;
+
   const base = NOTE_NAMES[name.toLowerCase()];
   if (base === undefined) return null;
 
@@ -189,7 +194,29 @@ export function validateStrudelCode(
     }
   }
 
-  // 5. Basic syntax check: balanced parentheses and quotes
+  // 5. Sound source functions must have quoted string arguments
+  //    Catches: note(<[a3 c4]>) -- must be note("<[a3 c4]>")
+  const QUOTED_ARG_FUNCTIONS = ["s", "note", "n"];
+  for (const fn of QUOTED_ARG_FUNCTIONS) {
+    const unquotedRegex = new RegExp(`\\b${fn}\\s*\\(\\s*[^"')\\s]`, "g");
+    // But allow numeric args like n(3) -- only flag if it looks like mini-notation
+    const unquotedMatches = code.match(unquotedRegex);
+    if (unquotedMatches) {
+      for (const m of unquotedMatches) {
+        // Allow bare numbers: note(3), n(0), s(1)
+        const argChar = m.charAt(m.length - 1);
+        if (!/\d/.test(argChar)) {
+          errors.push(
+            `${fn}() argument must be a quoted string. ` +
+            `Use ${fn}("...") not ${fn}(...). Mini-notation like <> [] must be inside quotes.`
+          );
+          break;
+        }
+      }
+    }
+  }
+
+  // 6. Basic syntax check: balanced parentheses and quotes
   if (!hasBalancedParens(code)) {
     errors.push("Unbalanced parentheses");
   }
@@ -212,7 +239,10 @@ function extractStringArgs(code: string, fnName: string): string[] {
   const regex = new RegExp(`\\b${fnName}\\s*\\(\\s*"([^"]*)"`, "g");
   let match: RegExpExecArray | null;
   while ((match = regex.exec(code)) !== null) {
-    results.push(match[1]);
+    const arg = match[1];
+    if (typeof arg === "string") {
+      results.push(arg);
+    }
   }
   return results;
 }
@@ -224,7 +254,10 @@ function extractNotesFromPattern(pattern: string): string[] {
   const regex = /\b([a-g][#b]?\d)\b/gi;
   let match: RegExpExecArray | null;
   while ((match = regex.exec(pattern)) !== null) {
-    notes.push(match[1]);
+    const note = match[1];
+    if (typeof note === "string") {
+      notes.push(note);
+    }
   }
   return notes;
 }

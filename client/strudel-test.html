@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Strudel Pattern Tester</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: monospace; background: #1a1a2e; color: #e0e0e0; padding: 20px; }
+        h2 { margin-bottom: 16px; color: #58a6ff; }
+        .controls { margin-bottom: 20px; display: flex; gap: 8px; flex-wrap: wrap; }
+        button {
+            padding: 8px 16px; border: 1px solid #444; background: #2a2a4a;
+            color: #e0e0e0; cursor: pointer; font-family: monospace; font-size: 13px;
+            border-radius: 4px;
+        }
+        button:hover { background: #3a3a5a; }
+        button.playing { background: #1a6e3a; border-color: #3fb950; }
+        button.error { background: #6e1a1a; border-color: #f85149; }
+        .test-patterns { margin-bottom: 20px; }
+        .test-row {
+            display: flex; gap: 8px; align-items: center; margin-bottom: 6px;
+            padding: 8px; background: #16213e; border-radius: 4px;
+        }
+        .test-row .status {
+            width: 20px; height: 20px; border-radius: 50%;
+            background: #333; flex-shrink: 0;
+        }
+        .test-row .status.ok { background: #3fb950; }
+        .test-row .status.fail { background: #f85149; }
+        .test-row .status.testing { background: #d29922; }
+        .test-row code { font-size: 11px; word-break: break-all; flex: 1; }
+        .test-row .label { font-size: 11px; color: #8b949e; min-width: 80px; }
+        textarea {
+            width: 100%; height: 60px; background: #16213e; color: #e0e0e0;
+            border: 1px solid #444; padding: 8px; font-family: monospace; font-size: 12px;
+            border-radius: 4px; margin-bottom: 8px;
+        }
+        #log {
+            max-height: 300px; overflow: auto; background: #0d1117;
+            padding: 12px; font-size: 11px; border-radius: 4px;
+            border: 1px solid #21262d; white-space: pre-wrap;
+        }
+        .log-ok { color: #3fb950; }
+        .log-err { color: #f85149; }
+        .log-warn { color: #d29922; }
+        .section { margin-bottom: 24px; }
+        .section h3 { color: #8b949e; font-size: 12px; margin-bottom: 8px; }
+
+        /* Fetch from server */
+        .fetch-bar { margin-bottom: 16px; }
+        .fetch-bar button { background: #0c4a6e; border-color: #7dd3fc; }
+    </style>
+</head>
+<body>
+    <h2>Strudel Pattern Diagnostic</h2>
+    <p style="color:#8b949e;margin-bottom:20px;font-size:12px">
+        Tests patterns one at a time to find which ones crash Strudel's audio engine.
+        The <code>(o || "").match is not a function</code> error happens at query time, not evaluate time,
+        so we play each pattern for 2 seconds and watch for errors.
+    </p>
+
+    <div class="section fetch-bar">
+        <button id="fetchBtn">Fetch current composition from server</button>
+        <span id="fetchStatus" style="font-size:11px;color:#8b949e;margin-left:8px"></span>
+    </div>
+
+    <div class="section">
+        <h3>TEST PATTERNS (click "Run All Tests" or test individually)</h3>
+        <div id="testPatterns"></div>
+        <div style="margin-top:8px">
+            <textarea id="customPattern" placeholder="Paste a custom pattern here..."></textarea>
+            <button id="addCustom">Add custom pattern</button>
+        </div>
+    </div>
+
+    <div class="controls">
+        <button id="runAll">Run All Tests (2s each)</button>
+        <button id="stopBtn">Stop Audio</button>
+        <button id="clearLog">Clear Log</button>
+    </div>
+
+    <div id="log"></div>
+
+    <!-- Strudel REPL offscreen -->
+    <div style="position:fixed;left:-9999px;top:-9999px;width:400px;height:200px;overflow:hidden;">
+        <strudel-editor id="repl"><!--
+s("~")
+        --></strudel-editor>
+    </div>
+    <script src="https://unpkg.com/@strudel/repl@1.1.0/dist/index.js"></script>
+
+    <script>
+    const API_BASE = window.location.origin + '/api';
+    let patterns = [];
+    let errorCount = 0;
+    let currentlyTesting = false;
+
+    // Known test cases: patterns that might break
+    const DEFAULT_PATTERNS = [
+        { label: 'drums-808', code: 's("bd sd bd sd").bank("RolandTR808").gain(0.8)' },
+        { label: 'drums-909', code: 's("bd*2 ~ bd sd , ~ sd ~ sd , hh*8").bank("RolandTR909").gain(0.7)' },
+        { label: 'bass-saw', code: 'note("<a1 e1 d1 g1>").s("sawtooth").lpf(400).decay(0.4)' },
+        { label: 'chords-piano', code: 'note("<Am7 Dm7 G7 Cmaj7>").voicings("lefthand").s("piano").gain(0.5)' },
+        { label: 'chords-tri', code: 'note("<Am7 Dm7 G7 Cmaj7>").voicings("lefthand").s("triangle").gain(0.5)' },
+        { label: 'chords-2alt', code: 'note("<Am7 Em7 Dm7 G7> <Cmaj7 Am7 Dm7 Em7>").voicings("lefthand").s("piano").gain(0.5)' },
+        { label: 'chords-rests', code: 'note("Am7 ~ ~ ~ Dm7 ~ G7 ~").voicings("lefthand").s("piano").gain(0.5)' },
+        { label: 'chords-release', code: 'note("<Am7 Dm7 G7 Cmaj7>").voicings("lefthand").s("piano").gain(0.5).attack(0.1).release(0.8)' },
+        { label: 'chords-tri+rel', code: 'note("<Am7 Em7 Dm7 G7>").voicings("lefthand").s("triangle").gain(0.5).release(0.3).lpf(3000)' },
+        { label: 'melody-tri', code: 'note("a4 [c5 e5] ~ a4 g4 ~ [e4 d4] ~").s("triangle").delay(0.2).room(0.3)' },
+        { label: 'wild-arpy', code: 's("~ arpy ~ arpy:3").note("e4 ~ a4 ~").room(0.5).gain(0.3)' },
+    ];
+
+    // --- Editor helpers ---
+
+    function getEditor() {
+        const el = document.getElementById('repl');
+        return el?.editor || null;
+    }
+
+    function waitForEditor(maxWait = 8000) {
+        return new Promise((resolve) => {
+            const start = Date.now();
+            const check = () => {
+                const ed = getEditor();
+                if (ed && ed.repl) return resolve(ed);
+                if (Date.now() - start > maxWait) return resolve(null);
+                setTimeout(check, 200);
+            };
+            check();
+        });
+    }
+
+    // --- Logging ---
+
+    function log(msg, cls = '') {
+        const el = document.getElementById('log');
+        const span = document.createElement('span');
+        span.className = cls;
+        span.textContent = msg + '\n';
+        el.appendChild(span);
+        el.scrollTop = el.scrollHeight;
+    }
+
+    // --- Intercept console errors to detect query-time crashes ---
+
+    const originalConsoleLog = console.log.bind(console);
+    const originalConsoleError = console.error.bind(console);
+    const originalConsoleWarn = console.warn.bind(console);
+
+    function interceptConsole() {
+        errorCount = 0;
+        console.log = function(...args) {
+            const msg = args.join(' ');
+            if (msg.includes('[query]') && msg.includes('not a function')) {
+                errorCount++;
+            }
+            originalConsoleLog(...args);
+        };
+        console.error = function(...args) {
+            const msg = args.join(' ');
+            if (msg.includes('match') || msg.includes('not a function')) {
+                errorCount++;
+            }
+            originalConsoleError(...args);
+        };
+    }
+
+    function restoreConsole() {
+        console.log = originalConsoleLog;
+        console.error = originalConsoleError;
+    }
+
+    // --- Test a single pattern ---
+
+    async function testPattern(code, index, playDuration = 2000) {
+        const row = document.querySelectorAll('.test-row')[index];
+        const statusDot = row?.querySelector('.status');
+        if (statusDot) statusDot.className = 'status testing';
+
+        log(`\nTesting [${index}]: ${code.slice(0, 80)}...`);
+
+        const ed = getEditor();
+        if (!ed) {
+            log('  Editor not ready!', 'log-err');
+            if (statusDot) statusDot.className = 'status fail';
+            return false;
+        }
+
+        // Start error interception
+        interceptConsole();
+
+        try {
+            const el = document.getElementById('repl');
+            el.setAttribute('code', code);
+            await ed.evaluate();
+            log('  evaluate() OK', 'log-ok');
+
+            // Let it play for a bit to catch query-time errors
+            await new Promise(r => setTimeout(r, playDuration));
+
+            // Stop
+            try { ed.repl.stop(); } catch(e) {}
+
+            // Check for errors
+            restoreConsole();
+
+            if (errorCount > 0) {
+                log(`  RUNTIME ERRORS: ${errorCount} query-time errors detected!`, 'log-err');
+                if (statusDot) statusDot.className = 'status fail';
+                return false;
+            } else {
+                log('  OK - no errors after 2s of playback', 'log-ok');
+                if (statusDot) statusDot.className = 'status ok';
+                return true;
+            }
+        } catch (err) {
+            restoreConsole();
+            log(`  EVALUATE ERROR: ${err.message}`, 'log-err');
+            if (statusDot) statusDot.className = 'status fail';
+            return false;
+        }
+    }
+
+    // --- Render test patterns ---
+
+    function renderPatterns() {
+        const container = document.getElementById('testPatterns');
+        container.innerHTML = patterns.map((p, i) => `
+            <div class="test-row" data-index="${i}">
+                <div class="status"></div>
+                <span class="label">${esc(p.label)}</span>
+                <code>${esc(p.code)}</code>
+                <button onclick="testSingle(${i})">Test</button>
+            </div>
+        `).join('');
+    }
+
+    function esc(s) {
+        const d = document.createElement('div');
+        d.textContent = s;
+        return d.innerHTML;
+    }
+
+    // --- Actions ---
+
+    window.testSingle = async (index) => {
+        if (currentlyTesting) return;
+        currentlyTesting = true;
+        const ed = await waitForEditor();
+        if (!ed) { log('Editor not ready!', 'log-err'); currentlyTesting = false; return; }
+        await testPattern(patterns[index].code, index);
+        currentlyTesting = false;
+    };
+
+    document.getElementById('runAll').onclick = async () => {
+        if (currentlyTesting) return;
+        currentlyTesting = true;
+        const ed = await waitForEditor();
+        if (!ed) { log('Editor not ready!', 'log-err'); currentlyTesting = false; return; }
+
+        log('\n=== RUNNING ALL PATTERN TESTS ===', 'log-warn');
+        const results = [];
+
+        for (let i = 0; i < patterns.length; i++) {
+            const ok = await testPattern(patterns[i].code, i);
+            results.push({ label: patterns[i].label, ok });
+            // Brief pause between tests
+            await new Promise(r => setTimeout(r, 500));
+        }
+
+        log('\n=== RESULTS ===', 'log-warn');
+        for (const r of results) {
+            log(`  ${r.ok ? 'PASS' : 'FAIL'}  ${r.label}`, r.ok ? 'log-ok' : 'log-err');
+        }
+
+        const passed = results.filter(r => r.ok).length;
+        log(`\n${passed}/${results.length} patterns passed`, passed === results.length ? 'log-ok' : 'log-warn');
+        currentlyTesting = false;
+    };
+
+    document.getElementById('stopBtn').onclick = () => {
+        try { getEditor()?.repl?.stop(); log('Stopped.'); } catch(e) {}
+    };
+
+    document.getElementById('clearLog').onclick = () => {
+        document.getElementById('log').innerHTML = '';
+    };
+
+    document.getElementById('addCustom').onclick = () => {
+        const code = document.getElementById('customPattern').value.trim();
+        if (!code) return;
+        patterns.push({ label: 'custom-' + patterns.length, code });
+        renderPatterns();
+        document.getElementById('customPattern').value = '';
+    };
+
+    document.getElementById('fetchBtn').onclick = async () => {
+        const status = document.getElementById('fetchStatus');
+        status.textContent = 'fetching...';
+        try {
+            const res = await fetch(API_BASE + '/composition');
+            const comp = await res.json();
+            const activeSlots = comp.slots.filter(s => s.code);
+            // Replace patterns with current composition
+            patterns = activeSlots.map(s => ({
+                label: `slot-${s.id}-${s.type}`,
+                code: s.code,
+            }));
+            // Also add a stack() test
+            if (activeSlots.length > 1) {
+                const stackCode = `stack(${activeSlots.map(s => `(${s.code})`).join(',\n')})`;
+                patterns.push({ label: 'stack-all', code: stackCode });
+            }
+            renderPatterns();
+            status.textContent = `loaded ${activeSlots.length} slots + stack test`;
+        } catch (err) {
+            status.textContent = 'error: ' + err.message;
+        }
+    };
+
+    // --- Init ---
+    patterns = [...DEFAULT_PATTERNS];
+    renderPatterns();
+    log('Waiting for Strudel editor to load...');
+    waitForEditor().then(ed => {
+        if (ed) log('Editor ready! Click "Run All Tests" to begin.\n', 'log-ok');
+        else log('Editor failed to load!', 'log-err');
+    });
+    </script>
+</body>
+</html>

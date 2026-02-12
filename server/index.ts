@@ -15,10 +15,13 @@ app.use("*", logger());
 // API routes
 app.route("/api", api);
 
+// Serve model assets from public/
+app.use("/models/*", serveStatic({ root: "./public", rewriteRequestPath: (path) => path.replace(/^\/models/, "") }));
+
 // Serve static client files
 app.use("/*", serveStatic({ root: "./client" }));
 
-const PORT = Number(process.env.PORT) || 4000;
+const PORT = Number(process.env.PORT) || 5555;
 
 console.log(`
 ╔══════════════════════════════════════╗

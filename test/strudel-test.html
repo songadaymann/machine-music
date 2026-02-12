@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html>
+<head><title>Strudel Test</title></head>
+<body>
+<h2>Strudel @strudel/web Test</h2>
+<button id="test1">Test 1: Simple drum</button><br><br>
+<button id="test2">Test 2: Simple note</button><br><br>
+<button id="test3">Test 3: Stack two</button><br><br>
+<button id="test4">Test 4: Voicings</button><br><br>
+<button id="test5">Test 5: Full bot composition</button><br><br>
+<button id="stop">STOP</button><br><br>
+<pre id="log"></pre>
+
+<script src="https://unpkg.com/@strudel/web@1.1.0"></script>
+<script>
+let ready = false;
+function log(msg) {
+    document.getElementById('log').textContent += msg + '\n';
+    console.log(msg);
+}
+
+async function play(code) {
+    if (!ready) { initStrudel(); ready = true; log('initialized'); }
+    log('evaluating: ' + code);
+    try {
+        await evaluate(code);
+        log('playing!');
+    } catch(e) {
+        log('ERROR: ' + e.message);
+    }
+}
+
+document.getElementById('test1').onclick = () =>
+    play('s("bd sd bd sd").bank("RolandTR808")');
+
+document.getElementById('test2').onclick = () =>
+    play('note("a4 c5 e5 a5").s("triangle")');
+
+document.getElementById('test3').onclick = () =>
+    play('stack(s("bd sd bd sd").bank("RolandTR808"), note("a4 c5 e5 a5").s("triangle"))');
+
+document.getElementById('test4').onclick = () =>
+    play('note("<Am7 Dm7>").voicings("lefthand").s("piano")');
+
+document.getElementById('test5').onclick = () =>
+    play(`stack(
+        s("bd sd bd sd").bank("RolandTR808").gain(.8),
+        note("<a1 e1 d1 e1>").s("sawtooth").lpf(350).decay(.3),
+        note("<Am7 Dm7>").voicings("lefthand").s("piano").gain(.5),
+        note("a4 c5 e5 a5").s("triangle").delay(.2).room(.3)
+    )`);
+
+document.getElementById('stop').onclick = () => { hush(); log('stopped'); };
+</script>
+</body>
+</html>

@@ -6,9 +6,12 @@
     "build": "echo 'No build step needed'",
     "dev": "bun run --hot server/index.ts",
     "start": "bun run server/index.ts",
+    "typecheck": "bunx tsc --project tsconfig.ci.json --noEmit",
     "test:bot": "bun run test/bot.ts",
-    "test:orchestra": "bun run test/orchestra.ts",
-    "test:curl": "bash test/curl-test.sh"
+    "test:curl": "bash test/curl-test.sh",
+    "test:smoke": "bash test/ci-smoke.sh",
+    "test:stress": "bun run test/llm-stress-test.ts",
+    "ci:verify": "bun run typecheck && bun run test:smoke"
   },
   "devDependencies": {
     "@types/bun": "latest",
