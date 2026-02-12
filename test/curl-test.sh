@@ -5,9 +5,14 @@
 set -u
 
 API="${API:-http://localhost:4000/api}"
-SUFFIX="${TEST_SUFFIX:-$RANDOM}"
-BOT1="test-bot-1-$SUFFIX"
-BOT2="test-bot-2-$SUFFIX"
+RAW_SUFFIX="${TEST_SUFFIX:-$RANDOM}"
+# Agent names must match ^[a-zA-Z0-9._-]{1,20}$.
+SUFFIX="$(printf '%s' "$RAW_SUFFIX" | tr -cd '[:alnum:]' | cut -c1-6)"
+if [[ -z "$SUFFIX" ]]; then
+  SUFFIX="$RANDOM"
+fi
+BOT1="tb1_$SUFFIX"
+BOT2="tb2_$SUFFIX"
 PASS=0
 FAIL=0
 
