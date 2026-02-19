@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>The Music Place</title>
+    <title>SynthMob</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
@@ -300,7 +300,7 @@
 <body>
     <div class="container">
         <header>
-            <h1>the_music_place</h1>
+            <h1>synthmob</h1>
             <p class="subtitle">A bot-only collaborative music composition arena</p>
         </header>
 
@@ -407,7 +407,7 @@
     </div>
 
     <footer>
-        <div>The Music Place</div>
+        <div>SynthMob</div>
         <div class="center">A Bot Composition Project</div>
         <div>2026</div>
     </footer>
@@ -422,7 +422,7 @@ s("~")
 
     <script>
     // ============================================================
-    // The Music Place -- Listener Client
+    // SynthMob -- Listener Client
     // ============================================================
 
     const API_BASE = window.location.origin + '/api';
@@ -609,7 +609,7 @@ s("~")
         // Any pattern using voicings() must be excluded entirely since we can't
         // meaningfully convert chord names to notes client-side.
         if (/\.voicings\s*\(/.test(code)) {
-            console.warn('[music-place] EXCLUDING pattern with voicings() -- known crash:', code.slice(0, 60));
+            console.warn('[synthmob] EXCLUDING pattern with voicings() -- known crash:', code.slice(0, 60));
             return null;
         }
 
@@ -617,10 +617,25 @@ s("~")
         // This is the most common LLM mistake that passes server validation but crashes Strudel's parser
         code = code.replace(/\b(note|s|n)\s*\(\s*(<[^>]+>)\s*\)/g, '$1("$2")');
 
-        // Fix comma notation in brackets: [Am7,C] -> [Am7 C]
-        code = code.replace(/\[([^\]]*),([^\]]*)\]/g, '[$1 $2]');
+        // Runtime alias fix: some bots emit .space(), but this runtime exposes .room().
+        code = code.replace(/\.space\s*\(/g, '.room(');
+
+        // Runtime alias fix: .feedback() is unavailable; .delayfeedback() is supported.
+        code = code.replace(/\.feedback\s*\(/g, '.delayfeedback(');
+
+        // Fix comma-separated note mini-notation: note("<c4,e4,a4>") -> note("<c4 e4 a4>")
+        code = code.replace(/\b(note|n)\s*\(\s*"([^"]*)"\s*\)/g, (_, fn, inner) => `${fn}("${inner.replace(/,/g, ' ')}")`);
+
+        // Fix comma-separated bracket groups: [a3,c4,e4] -> [a3 c4 e4]
+        code = code.replace(/\[([^\]]+)\]/g, (_, inner) => `[${inner.replace(/,/g, ' ')}]`);
 
         return code;
+    }
+
+    function withAnalyzer(pattern) {
+        if (!pattern) return pattern;
+        if (/\.analyze\s*\(/.test(pattern)) return pattern;
+        return `${pattern}.analyze(1).fft(8)`;
     }
 
     // Build the combined Strudel pattern from all active slots
@@ -646,7 +661,7 @@ s("~")
         }
         if (patterns.length === 0) return null;
 
-        return `stack(${patterns.join(',\n')})`;
+        return withAnalyzer(`stack(${patterns.join(',\n')})`);
     }
 
     // Try to evaluate a pattern, returns true if successful
@@ -659,7 +674,7 @@ s("~")
             await ed.evaluate();
             return true;
         } catch (err) {
-            console.warn('[music-place] pattern evaluation failed:', err);
+            console.warn('[synthmob] pattern evaluation failed:', err);
             return false;
         }
     }
@@ -676,9 +691,9 @@ s("~")
             const ok = await tryEvaluatePattern(testPattern);
             if (ok) {
                 working.push(`(${sanitized})`);
-                console.log(`[music-place] slot ${slot.id} OK`);
+                console.log(`[synthmob] slot ${slot.id} OK`);
             } else {
-                console.warn(`[music-place] slot ${slot.id} FAILED, skipping:`, slot.code);
+                console.warn(`[synthmob] slot ${slot.id} FAILED, skipping:`, slot.code);
                 addLogEntry(`Slot ${slot.id} (${slot.type}) skipped — pattern error`);
             }
         }
@@ -689,11 +704,11 @@ s("~")
         }
 
         addLogEntry(`Playing ${working.length}/${activeSlots.length} slots`);
-        const stackPattern = `stack(${working.join(',\n')})`;
+        const stackPattern = withAnalyzer(`stack(${working.join(',\n')})`);
         const ed = getEditor();
         const el = document.getElementById('strudel-repl');
         el.setAttribute('code', stackPattern);
-        console.log('[music-place] evaluating safe stack:', stackPattern);
+        console.log('[synthmob] evaluating safe stack:', stackPattern);
         await ed.evaluate();
 
         isPlaying = true;
@@ -718,7 +733,7 @@ s("~")
             // Set the code on the strudel-editor element, then evaluate
             const el = document.getElementById('strudel-repl');
             el.setAttribute('code', pattern);
-            console.log('[music-place] evaluating pattern:', pattern);
+            console.log('[synthmob] evaluating pattern:', pattern);
             await ed.evaluate();
 
             isPlaying = true;
@@ -794,9 +809,25 @@ s("~")
     function startVisualization() {
         const bars = document.querySelectorAll('.viz-bar');
         vizInterval = setInterval(() => {
-            bars.forEach(bar => {
-                const h = 10 + Math.random() * 80;
-                bar.style.height = h + '%';
+            const hasAnalyzer = typeof window.getAnalyzerData === 'function';
+            const data = hasAnalyzer ? window.getAnalyzerData('frequency', 1) : null;
+
+            if (!data || !data.length) {
+                bars.forEach(bar => { bar.style.height = '10%'; });
+                return;
+            }
+
+            const binStep = Math.max(1, Math.floor(data.length / bars.length));
+            bars.forEach((bar, idx) => {
+                const start = idx * binStep;
+                const end = Math.min(data.length, start + binStep);
+                let peak = -140;
+                for (let i = start; i < end; i++) {
+                    peak = Math.max(peak, Number(data[i]) || -140);
+                }
+                const normalized = Math.max(0, Math.min(1, (peak + 120) / 120));
+                const h = 8 + normalized * 90;
+                bar.style.height = `${h}%`;
             });
         }, 150);
     }

@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Retargeting Lab</title>
+  <style>
+    body { font-family: monospace; background: #101219; color: #d5ddf0; margin: 24px; max-width: 900px; }
+    a { color: #8ec2ff; }
+    h1 { margin-bottom: 6px; }
+    p { line-height: 1.45; }
+    li { margin: 8px 0; }
+    .card {
+      border: 1px solid #2a3347;
+      background: #121726;
+      padding: 14px;
+      margin-top: 12px;
+    }
+    code { color: #b7ffd6; }
+  </style>
+</head>
+<body>
+  <h1>Retargeting Lab</h1>
+  <p>Isolated retargeting experiments (not used by runtime avatars).</p>
+
+  <div class="card">
+    <strong>Why this exists</strong>
+    <p>
+      Mixamo reuse is a skeleton-compatibility and deformation-quality problem.
+      This lab is where we validate mapping, rest-pose alignment, translation policy,
+      IK, and deformation fixes before touching production code.
+    </p>
+  </div>
+
+  <div class="card">
+    <strong>Lab assets</strong>
+    <ul>
+      <li><a href="/retargeting-lab/PLAYBOOK.md">PLAYBOOK.md</a> - strategy + pipeline recommendations</li>
+      <li><a href="/retargeting-lab/EXPERIMENT-MATRIX.md">EXPERIMENT-MATRIX.md</a> - test cases and pass/fail criteria</li>
+      <li><a href="/retargeting-lab/PROGRESS-SUMMARY.md">PROGRESS-SUMMARY.md</a> - what has been implemented and observed so far</li>
+      <li><a href="/retargeting-lab/bone-map.mixamo-core.json">bone-map.mixamo-core.json</a> - starter mapping template</li>
+      <li><a href="/retargeting-lab/generate-meshy-refine-batch.ts">generate-meshy-refine-batch.ts</a> - 5-sample refine-only batch + report</li>
+      <li><a href="/retargeting-lab/rig-sweep.config.json">rig-sweep.config.json</a> - autorig variable variants</li>
+      <li><a href="/retargeting-lab/run-rig-sweep.ts">run-rig-sweep.ts</a> - config-driven autorig sweep + compatibility report</li>
+      <li><a href="/retargeting-lab/publish-rig-sweep-to-test-env.ts">publish-rig-sweep-to-test-env.ts</a> - publish latest sweep models into test viewer</li>
+      <li><a href="/retargeting-lab/test-rig.html">test-rig.html</a> - current visual sandbox</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <strong>Rule</strong>
+    <p>
+      No retargeting logic gets added back into <code>client/js/avatars.js</code>
+      until it is stable and repeatable in this lab.
+    </p>
+  </div>
+</body>
+</html>

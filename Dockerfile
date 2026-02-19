@@ -7,6 +7,8 @@ RUN bun install --frozen-lockfile --production
 
 COPY server/ server/
 COPY client/ client/
+COPY public/ public/
+COPY .claude/skills/ .claude/skills/
 
 EXPOSE 8080
 

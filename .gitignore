@@ -32,3 +32,14 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 
 # Finder (MacOS) folder config
 .DS_Store
+
+# runtime-generated artifacts
+public/generated-avatars/
+public/generated-world-objects/
+
+# large local-only assets
+output/
+public/environments/
+
+# cached soul.md files for stress tests
+test/souls/

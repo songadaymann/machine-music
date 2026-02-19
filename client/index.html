@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>The Music Place</title>
+    <title>SynthMob</title>
     <link rel="stylesheet" href="css/void.css">
 
     <!-- Three.js via import map (no build step) -->
@@ -24,29 +24,52 @@
     <div id="hud">
         <!-- Top bar -->
         <div id="top-bar">
-            <h1>the_music_place</h1>
+            <h1>synthmob</h1>
             <div id="status-bar">
                 <span class="status-item">loading...</span>
+                <button id="wallet-btn" class="wallet-btn" style="display:none;">Connect Wallet</button>
             </div>
         </div>
 
-        <!-- Left panel: Slot controls with mute/solo -->
-        <div id="left-panel">
-            <div id="slot-controls">
-                <!-- Populated by ui.js -->
+        <!-- Social feed panel (left side) -->
+        <div id="social-panel">
+            <div class="social-tabs">
+                <button class="social-tab active" data-tab="chat">Chat</button>
+                <button class="social-tab" data-tab="activity">Activity</button>
+            </div>
+            <div id="social-chat" class="social-feed"></div>
+            <div id="social-activity" class="social-feed hidden"></div>
+            <div id="chat-input-bar">
+                <input type="text" id="chat-input" placeholder="Say something..." maxlength="280" autocomplete="off">
+                <button id="chat-send-btn">Send</button>
             </div>
         </div>
 
-        <!-- Right panel: Bot reasoning feed -->
-        <div id="right-panel">
-            <div id="reasoning-feed">
-                <!-- Populated by ui.js -->
+        <!-- Ritual voting panel (appears during active world rituals) -->
+        <div id="ritual-panel" class="hidden">
+            <div class="ritual-header">
+                <span class="ritual-title">WORLD RITUAL</span>
+                <span class="ritual-number"></span>
             </div>
+            <div class="ritual-phase-label"></div>
+            <div class="ritual-progress">
+                <div class="ritual-progress-track">
+                    <div class="ritual-progress-bar"></div>
+                </div>
+                <span class="ritual-countdown"></span>
+            </div>
+            <div class="ritual-body"></div>
+        </div>
+
+        <!-- Agent hover modal (bottom-right, outside PSX shader) -->
+        <div id="agent-modal" class="agent-modal hidden">
+            <!-- Populated by ui.js on avatar hover -->
         </div>
 
         <!-- Bottom bar: Play button + activity log -->
         <div id="bottom-bar">
             <button id="play-btn">Listen</button>
+            <button id="camera-mode-btn" class="hud-secondary-btn">Camera: Orbit</button>
             <div id="activity-log">
                 <div class="log-empty">Waiting for activity...</div>
             </div>

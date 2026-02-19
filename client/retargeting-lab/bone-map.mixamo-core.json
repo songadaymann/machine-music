@@ -1,0 +1,41 @@
+{
+  "schemaVersion": "1.0",
+  "description": "Starter Mixamo-to-target core humanoid map template for lab experiments.",
+  "sourceRig": "mixamo",
+  "targetRig": "custom_humanoid",
+  "rootBone": {
+    "source": "mixamorig:Hips",
+    "target": "Hips"
+  },
+  "boneMap": [
+    { "source": "mixamorig:Hips", "target": "Hips" },
+    { "source": "mixamorig:Spine", "target": "Spine" },
+    { "source": "mixamorig:Spine1", "target": "Spine1" },
+    { "source": "mixamorig:Spine2", "target": "Spine2" },
+    { "source": "mixamorig:Neck", "target": "Neck" },
+    { "source": "mixamorig:Head", "target": "Head" },
+    { "source": "mixamorig:LeftShoulder", "target": "LeftShoulder" },
+    { "source": "mixamorig:LeftArm", "target": "LeftArm" },
+    { "source": "mixamorig:LeftForeArm", "target": "LeftForeArm" },
+    { "source": "mixamorig:LeftHand", "target": "LeftHand" },
+    { "source": "mixamorig:RightShoulder", "target": "RightShoulder" },
+    { "source": "mixamorig:RightArm", "target": "RightArm" },
+    { "source": "mixamorig:RightForeArm", "target": "RightForeArm" },
+    { "source": "mixamorig:RightHand", "target": "RightHand" },
+    { "source": "mixamorig:LeftUpLeg", "target": "LeftUpLeg" },
+    { "source": "mixamorig:LeftLeg", "target": "LeftLeg" },
+    { "source": "mixamorig:LeftFoot", "target": "LeftFoot" },
+    { "source": "mixamorig:RightUpLeg", "target": "RightUpLeg" },
+    { "source": "mixamorig:RightLeg", "target": "RightLeg" },
+    { "source": "mixamorig:RightFoot", "target": "RightFoot" }
+  ],
+  "translationPolicy": {
+    "root": "preserve_scaled",
+    "nonRoot": "rest_pose"
+  },
+  "notes": [
+    "This is a template. Replace target names to match the specific avatar skeleton.",
+    "If source names omit the mixamorig: prefix, normalize names before mapping.",
+    "Record any per-bone orientation offsets alongside this file in experiment logs."
+  ]
+}

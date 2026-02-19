@@ -1,0 +1,33 @@
+services:
+  streamer:
+    build: .
+    container_name: synthmob-streamer
+    restart: unless-stopped
+    environment:
+      # URL of your SynthMob instance (?autoplay=1 starts music automatically)
+      - APP_URL=https://synthmob.fly.dev?autoplay=1
+
+      # RTMP ingest URL -- use a restreaming service to fan out to multiple platforms
+      # Restream.io: rtmp://live.restream.io/live/YOUR_STREAM_KEY
+      # Twitch:      rtmp://live.twitch.tv/app/YOUR_STREAM_KEY
+      # YouTube:     rtmp://a.rtmp.youtube.com/live2/YOUR_STREAM_KEY
+      - RTMP_URL=rtmp://live.restream.io/live/YOUR_STREAM_KEY
+
+      # Stream quality
+      - RESOLUTION=1920x1080
+      - FRAMERATE=30
+      - VIDEO_BITRATE=4500k
+      - AUDIO_BITRATE=128k
+
+    # Shared memory for Chrome (prevents crashes)
+    shm_size: '2gb'
+
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 4G
+        reservations:
+          cpus: '2'
+          memory: 2G

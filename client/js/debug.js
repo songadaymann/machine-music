@@ -11,30 +11,25 @@ import {
 } from './avatars.js';
 import { setTypeScale, setTypeYOffset, setTypeRotation, getModelConfig } from './instruments.js';
 
-const STORAGE_KEY = 'music-place-debug';
+const STORAGE_KEY = 'synthmob-debug';
+
+// Instrument types in the spatial placement system
+const INSTRUMENT_TYPES = ['808', 'cello', 'dusty_piano', 'synth', 'prophet_5', 'synthesizer', 'tr66'];
 
 // --- Default values ---
 function getDefaults() {
     const cfg = getModelConfig();
-    return {
+    const defaults = {
         avatarScale:  getAvatarScale(),
         avatarY:      getAvatarYOffset(),
-        drums_scale:  cfg.drums.scale,
-        drums_y:      cfg.drums.yOffset,
-        drums_rot:    cfg.drums.rot,
-        bass_scale:   cfg.bass.scale,
-        bass_y:       cfg.bass.yOffset,
-        bass_rot:     cfg.bass.rot,
-        chords_scale: cfg.chords.scale,
-        chords_y:     cfg.chords.yOffset,
-        chords_rot:   cfg.chords.rot,
-        melody_scale: cfg.melody.scale,
-        melody_y:     cfg.melody.yOffset,
-        melody_rot:   cfg.melody.rot,
-        wild_scale:   cfg.wild.scale,
-        wild_y:       cfg.wild.yOffset,
-        wild_rot:     cfg.wild.rot,
     };
+    for (const type of INSTRUMENT_TYPES) {
+        const c = cfg[type] || {};
+        defaults[`${type}_scale`] = c.scale ?? 1;
+        defaults[`${type}_y`]     = c.yOffset ?? 0;
+        defaults[`${type}_rot`]   = c.rot ?? 0;
+    }
+    return defaults;
 }
 
 let values = {};
@@ -44,6 +39,12 @@ function load() {
     try {
         const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
         values = { ...defaults, ...saved };
+        for (const [key, fallback] of Object.entries(defaults)) {
+            const v = values[key];
+            if (typeof v !== 'number' || !Number.isFinite(v)) {
+                values[key] = fallback;
+            }
+        }
     } catch {
         values = defaults;
     }
@@ -57,7 +58,7 @@ function save() {
 function applyAll() {
     setAvatarScale(values.avatarScale);
     setAvatarYOffset(values.avatarY);
-    for (const type of ['drums', 'bass', 'chords', 'melody', 'wild']) {
+    for (const type of INSTRUMENT_TYPES) {
         setTypeScale(type, values[`${type}_scale`]);
         setTypeYOffset(type, values[`${type}_y`]);
         setTypeRotation(type, values[`${type}_rot`]);
@@ -176,8 +177,8 @@ function buildPanel() {
     body.appendChild(spawnBtn);
 
     // --- Instruments ---
-    for (const type of ['drums', 'bass', 'chords', 'melody', 'wild']) {
-        body.appendChild(createSection(type.charAt(0).toUpperCase() + type.slice(1)));
+    for (const type of INSTRUMENT_TYPES) {
+        body.appendChild(createSection(type));
         body.appendChild(createSlider('Scale', `${type}_scale`, 0.001, 10, 0.001));
         body.appendChild(createSlider('Y Offset', `${type}_y`, -5, 5, 0.05));
         body.appendChild(createSlider('Rotation', `${type}_rot`, -Math.PI, Math.PI, 0.05));

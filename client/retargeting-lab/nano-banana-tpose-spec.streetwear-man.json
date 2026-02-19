@@ -1,0 +1,32 @@
+{
+  "id": "streetwear-man",
+  "name": "Streetwear Man",
+  "description": "Young man with short black hair, red overalls, shirtless torso, realistic proportions.",
+  "visual_style": "game-ready character concept art, clean lighting, realistic but stylized detail.",
+  "pose": {
+    "type": "strict T-pose",
+    "arm_angle_degrees": 180,
+    "hand_orientation": "palms down, fingers relaxed and visible",
+    "leg_stance": "feet shoulder-width apart, knees straight",
+    "expression": "neutral"
+  },
+  "framing": {
+    "full_body_visible": true,
+    "centered": true,
+    "camera_view": "straight-on front view",
+    "feet_visible": true,
+    "aspect_ratio": "3:4"
+  },
+  "background": {
+    "type": "solid studio backdrop",
+    "color": "neutral light gray",
+    "description": "plain neutral background with no props"
+  },
+  "exclusions": [
+    "no extra characters",
+    "no props",
+    "no text or logos",
+    "no watermark",
+    "no dramatic perspective tilt"
+  ]
+}

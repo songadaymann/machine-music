@@ -1,0 +1,7 @@
+#!/usr/bin/pulseaudio -nF
+
+# Virtual audio sink for headless Chrome capture
+load-module module-native-protocol-unix auth-anonymous=1 socket=/tmp/pulse/native
+load-module module-null-sink sink_name=virtual_output sink_properties=device.description="VirtualOutput"
+set-default-sink virtual_output
+load-module module-monitor-source

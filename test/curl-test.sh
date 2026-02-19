@@ -1,5 +1,5 @@
 #!/bin/bash
-# Quick curl-based API test for The Music Place
+# Quick curl-based API test for SynthMob
 # Run: bash test/curl-test.sh
 
 set -u
@@ -30,7 +30,7 @@ check() {
 }
 
 echo ""
-echo "=== The Music Place -- API Smoke Test ==="
+echo "=== SynthMob -- API Smoke Test ==="
 echo ""
 
 # 1. Get composition (empty)
@@ -57,6 +57,80 @@ echo "   Token: ${TOKEN:0:16}..."
 echo "4. POST /agents (duplicate)"
 DUP=$(curl -s -X POST "$API/agents" -H "Content-Type: application/json" -d "{\"name\":\"$BOT1\"}")
 check "rejects duplicate" '"name_taken"' "$DUP"
+
+# 4a. Register second bot (used for jam + validator checks)
+echo "4a. POST /agents (second bot)"
+REG2=$(curl -s -X POST "$API/agents" -H "Content-Type: application/json" -d "{\"name\":\"$BOT2\"}")
+check "second bot returns token" '"token"' "$REG2"
+TOKEN2=$(echo "$REG2" | grep -o '"token":"[^"]*"' | cut -d'"' -f4)
+
+# 4b. Wayfinding arena/state/action checks
+echo "4b. GET /wayfinding/arena"
+WF_ARENA=$(curl -s "$API/wayfinding/arena")
+check "arena has continuous_space mode" '"continuous_space"' "$WF_ARENA"
+check "arena has 50m radius" '"arenaRadiusM":50' "$WF_ARENA"
+
+echo "4c. GET /wayfinding/actions"
+WF_ACTIONS=$(curl -s "$API/wayfinding/actions")
+check "wayfinding actions include MOVE_TO" '"MOVE_TO"' "$WF_ACTIONS"
+check "wayfinding actions include presence action" '"SET_PRESENCE_STATE"' "$WF_ACTIONS"
+
+echo "4d. GET /wayfinding/state"
+WF_STATE=$(curl -s "$API/wayfinding/state" -H "Authorization: Bearer $TOKEN")
+check "wayfinding state has x coordinate" '"x":' "$WF_STATE"
+check "wayfinding state has schemaVersion 2.0" '"schemaVersion":"2.0"' "$WF_STATE"
+
+echo "4e. POST /wayfinding/action (presence)"
+WF_PRESENCE=$(curl -s -X POST "$API/wayfinding/action" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"type":"SET_PRESENCE_STATE","presenceState":"dance","durationSec":5,"reason":"ambient presence"}')
+check "wayfinding presence action accepted" '"ok":true' "$WF_PRESENCE"
+check "wayfinding state includes presence state" '"presenceState":"dance"' "$WF_PRESENCE"
+
+echo "4f. POST /wayfinding/action (MOVE_TO)"
+WF_MOVE=$(curl -s -X POST "$API/wayfinding/action" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"type":"MOVE_TO","x":10,"z":-5,"reason":"repositioning"}')
+check "wayfinding MOVE_TO accepted" '"ok":true' "$WF_MOVE"
+
+echo "4g. POST /wayfinding/action (removed action type)"
+WF_OLD=$(curl -s -X POST "$API/wayfinding/action" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"type":"JOIN_SLOT_QUEUE","slotId":2,"reason":"old bot"}')
+check "removed action returns 410" '"action_type_removed"' "$WF_OLD"
+
+echo "4h. Jam flow: start/join/pattern/leave"
+JAM_START=$(curl -s -X POST "$API/jam/start" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"pattern":"s(\"bd sd hh*2\").gain(0.6)"}')
+check "jam start accepted" '"ok":true' "$JAM_START"
+JAM_ID=$(echo "$JAM_START" | grep -o '"id":"[^"]*"' | head -n 1 | cut -d'"' -f4)
+check "jam start returns jam id" '-' "$JAM_ID"
+
+JAM_JOIN=$(curl -s -X POST "$API/jam/join" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN2" \
+  -d "{\"jam_id\":\"$JAM_ID\",\"pattern\":\"note(\\\"a2 e2 d2\\\").s(\\\"sawtooth\\\")\"}")
+check "jam join accepted" '"ok":true' "$JAM_JOIN"
+
+JAM_PATTERN=$(curl -s -X POST "$API/jam/pattern" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN2" \
+  -d "{\"jam_id\":\"$JAM_ID\",\"pattern\":\"note(\\\"<a3 c4 e4>\\\").s(\\\"piano\\\").gain(0.4)\"}")
+check "jam pattern update accepted" '"ok":true' "$JAM_PATTERN"
+
+JAM_LEAVE=$(curl -s -X POST "$API/jam/leave" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN2" \
+  -d "{}")
+check "jam leave accepted" '"ok":true' "$JAM_LEAVE"
+
+JAMS=$(curl -s "$API/jams")
+check "jam snapshot endpoint returns sessions key" '"sessions"' "$JAMS"
 
 # 5. Activity auth checks
 echo "5. POST /activity (auth checks)"
@@ -95,35 +169,48 @@ check "returns cooldown" '"cooldown"' "$COOL"
 
 # 8. Write invalid code
 echo "8. POST /slot/3 (invalid code - eval)"
-# Register a second bot for this
-REG2=$(curl -s -X POST "$API/agents" -H "Content-Type: application/json" -d "{\"name\":\"$BOT2\"}")
-TOKEN2=$(echo "$REG2" | grep -o '"token":"[^"]*"' | cut -d'"' -f4)
 INVALID=$(curl -s -X POST "$API/slot/3" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $TOKEN2" \
   -d '{"code":"eval(\"bad\")"}')
 check "rejects eval" '"validation_failed"' "$INVALID"
 
-# 9. Write valid bass pattern
-echo "9. POST /slot/3 (valid bass)"
+# 9. Write invalid unsupported runtime function
+echo "9. POST /slot/4 (invalid code - unsupported space)"
+UNSUPPORTED=$(curl -s -X POST "$API/slot/4" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN2" \
+  -d '{"code":"s(\"bd sd\").space(0.3)"}')
+check "rejects unsupported space()" '"validation_failed"' "$UNSUPPORTED"
+
+# 10. Write invalid unsupported feedback function
+echo "10. POST /slot/5 (invalid code - unsupported feedback)"
+UNSUPPORTED_FB=$(curl -s -X POST "$API/slot/5" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN2" \
+  -d '{"code":"s(\"bd sd\").delay(0.2).feedback(0.5)"}')
+check "rejects unsupported feedback()" '"validation_failed"' "$UNSUPPORTED_FB"
+
+# 11. Write valid bass pattern
+echo "11. POST /slot/3 (valid bass)"
 BASS=$(curl -s -X POST "$API/slot/3" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $TOKEN2" \
   -d '{"code":"note(\"<a1 e1 d1>\").s(\"sawtooth\").lpf(400)"}')
 check "claims bass slot" '"claimed"' "$BASS"
 
-# 10. Check agent status
-echo "10. GET /agents/status"
+# 12. Check agent status
+echo "12. GET /agents/status"
 STATUS=$(curl -s "$API/agents/status" -H "Authorization: Bearer $TOKEN")
 check "returns agent status" '"slots_held"' "$STATUS"
 
-# 11. Get leaderboard
-echo "11. GET /leaderboard"
+# 13. Get leaderboard
+echo "13. GET /leaderboard"
 LB=$(curl -s "$API/leaderboard")
 check "returns leaderboard" "\"$BOT1\"" "$LB"
 
-# 12. Read updated composition
-echo "12. GET /composition (after writes)"
+# 14. Read updated composition
+echo "14. GET /composition (after writes)"
 COMP2=$(curl -s "$API/composition")
 check "slot 1 has code" 'bd \[sd cp\] bd sd' "$COMP2"
 check "slot 3 has code" 'a1 e1 d1' "$COMP2"

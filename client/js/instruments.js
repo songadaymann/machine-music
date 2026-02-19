@@ -1,91 +1,32 @@
-// instruments.js -- Instrument positions in a semicircle, load real GLB models
+// instruments.js -- Dynamic spatial instrument placement
 //
 // GLB models served from /models/insrtuments/*.glb
+// Instruments placed at arbitrary world positions by agents.
 // Falls back to placeholder geometry if loading fails.
 
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
-// --- Slot layout ---
-// 8 positions in a semicircle, facing center
-// The semicircle opens toward the camera (positive Z)
-
-const SLOT_COUNT = 8;
-const RADIUS = 7;
-const ARC_START = Math.PI * 0.15;
-const ARC_END = Math.PI * 0.85;
-
-// Map slot types to instrument GLB paths and display settings
+// Map instrument type keys (from server InstrumentType) to model configs
 const INSTRUMENT_MODELS = {
-    drums:  { path: '/models/insrtuments/808.glb',                  scale: 0.001, yOffset: 0.65, rot: 1.558 },
-    bass:   { path: '/models/insrtuments/cello.glb',                scale: 1.26,  yOffset: 0.95, rot: 0 },
-    chords: { path: '/models/insrtuments/dusty_piano.glb',          scale: 1.46,  yOffset: 0,    rot: 0 },
-    melody: { path: '/models/insrtuments/synth.glb',                scale: 0.01,  yOffset: 0.5,  rot: 0 },
-    wild:   { path: '/models/insrtuments/prophet_5_synthesiser.glb', scale: 0.01,  yOffset: 0.3,  rot: 0 },
+    '808':          { path: '/models/insrtuments/808.glb',                  scale: 0.001, yOffset: 0.65, rot: 1.558, color: 0xe74c3c },
+    'cello':        { path: '/models/insrtuments/cello.glb',                scale: 1.26,  yOffset: 0.95, rot: 0,     color: 0x3498db },
+    'dusty_piano':  { path: '/models/insrtuments/dusty_piano.glb',          scale: 1.46,  yOffset: 0,    rot: 0,     color: 0x9b59b6 },
+    'synth':        { path: '/models/insrtuments/synth.glb',                scale: 0.01,  yOffset: 0.5,  rot: 0,     color: 0x2ecc71 },
+    'prophet_5':    { path: '/models/insrtuments/prophet_5_synthesiser.glb', scale: 0.01,  yOffset: 0.3,  rot: 0,     color: 0xf39c12 },
+    'synthesizer':  { path: '/models/insrtuments/synthesizer.glb',          scale: 0.01,  yOffset: 0.5,  rot: 0,     color: 0x1abc9c },
+    'tr66':         { path: '/models/insrtuments/tr-66_rhythm_arranger.glb', scale: 0.01,  yOffset: 0.5,  rot: 0,     color: 0xe67e22 },
 };
 
-// Slot metadata
-const SLOT_INFO = [
-    { id: 1, type: 'drums',  label: 'DR', color: 0xe74c3c },
-    { id: 2, type: 'drums',  label: 'DR', color: 0xe74c3c },
-    { id: 3, type: 'bass',   label: 'BA', color: 0x3498db },
-    { id: 4, type: 'chords', label: 'CH', color: 0x9b59b6 },
-    { id: 5, type: 'chords', label: 'CH', color: 0x9b59b6 },
-    { id: 6, type: 'melody', label: 'ME', color: 0x2ecc71 },
-    { id: 7, type: 'melody', label: 'ME', color: 0x2ecc71 },
-    { id: 8, type: 'wild',   label: 'WD', color: 0xf39c12 },
-];
+// Actively placed instruments: placementId -> { group, placement }
+const livePlacements = new Map();
 
-// --- Instrument positions ---
-const positions = [];
-const placedInstruments = []; // { group, info } -- for runtime scale/offset tweaks
-
-export function getPositions() { return positions; }
-export function getSlotPosition(slotId) {
-    return positions.find(p => p.info.id === slotId) || null;
-}
-
-// --- Runtime scale/offset setters (used by debug panel) ---
-
-export function setTypeScale(type, scale) {
-    INSTRUMENT_MODELS[type].scale = scale;
-    for (const entry of placedInstruments) {
-        if (entry.info.type === type) {
-            // The first child of the group is the model clone (or placeholder)
-            const model = entry.group.children[0];
-            if (model) model.scale.setScalar(scale);
-        }
-    }
-}
-
-export function setTypeYOffset(type, y) {
-    INSTRUMENT_MODELS[type].yOffset = y;
-    for (const entry of placedInstruments) {
-        if (entry.info.type === type) {
-            const model = entry.group.children[0];
-            if (model) model.position.y = y;
-        }
-    }
-}
-
-export function setTypeRotation(type, radians) {
-    INSTRUMENT_MODELS[type].rot = radians;
-    for (const entry of placedInstruments) {
-        if (entry.info.type === type) {
-            const model = entry.group.children[0];
-            if (model) model.rotation.y = radians;
-        }
-    }
-}
-
-export function getModelConfig() {
-    return INSTRUMENT_MODELS;
-}
+let sceneRef = null;
 
 // --- Loader ---
 
 const loader = new GLTFLoader();
-const modelCache = new Map(); // type -> THREE.Group (cloneable template)
+const modelCache = new Map(); // instrumentType -> THREE.Group (cloneable template)
 
 function loadGLB(path) {
     return new Promise((resolve, reject) => {
@@ -93,30 +34,26 @@ function loadGLB(path) {
     });
 }
 
-// --- Preload all unique instrument models ---
+// --- Preload all instrument models ---
 
 async function preloadModels() {
-    const uniqueTypes = [...new Set(SLOT_INFO.map(s => s.type))];
-    const results = await Promise.allSettled(
-        uniqueTypes.map(async (type) => {
+    const types = Object.keys(INSTRUMENT_MODELS);
+    await Promise.allSettled(
+        types.map(async (type) => {
             const config = INSTRUMENT_MODELS[type];
             if (!config) return;
-
             try {
                 const gltf = await loadGLB(config.path);
                 const model = gltf.scene;
                 model.scale.setScalar(config.scale);
                 model.position.y = config.yOffset;
                 model.rotation.y = config.rot || 0;
-
-                // Enable shadows
                 model.traverse((child) => {
                     if (child.isMesh) {
                         child.castShadow = true;
                         child.receiveShadow = true;
                     }
                 });
-
                 modelCache.set(type, model);
                 console.log(`[instruments] Loaded ${type} model`);
             } catch (err) {
@@ -126,19 +63,21 @@ async function preloadModels() {
     );
 }
 
-// --- Create placeholder instrument (fallback) ---
+// --- Create placeholder instrument (fallback when GLB unavailable) ---
 
-function createPlaceholderInstrument(info) {
+function createPlaceholderInstrument(instrumentType) {
+    const config = INSTRUMENT_MODELS[instrumentType] || {};
+    const color = config.color || 0x888888;
+
     const group = new THREE.Group();
-    group.name = `instrument-${info.id}`;
 
     // Base platform
     const platformGeo = new THREE.CylinderGeometry(0.6, 0.6, 0.05, 16);
     const platformMat = new THREE.MeshStandardMaterial({
-        color: info.color,
+        color,
         roughness: 0.7,
         metalness: 0.3,
-        emissive: info.color,
+        emissive: color,
         emissiveIntensity: 0.1,
     });
     const platform = new THREE.Mesh(platformGeo, platformMat);
@@ -146,135 +85,226 @@ function createPlaceholderInstrument(info) {
     platform.receiveShadow = true;
     group.add(platform);
 
-    // Shape varies by type
+    // Generic shape
     const mat = new THREE.MeshStandardMaterial({
         color: 0x333340, roughness: 0.5, metalness: 0.5,
     });
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.35, 0.4, 12), mat);
+    body.position.y = 0.5;
+    group.add(body);
 
-    switch (info.type) {
-        case 'drums': {
-            const body = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.35, 0.4, 12), mat);
-            body.position.y = 0.5;
-            group.add(body);
-            const hh = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.02, 12), mat);
-            hh.position.set(0.4, 0.8, 0);
-            group.add(hh);
-            break;
+    return group;
+}
+
+// --- Create instrument from cached GLB or fallback ---
+
+function createInstrumentModel(instrumentType) {
+    const template = modelCache.get(instrumentType);
+    if (!template) return createPlaceholderInstrument(instrumentType);
+
+    const group = new THREE.Group();
+    const clone = template.clone();
+    group.add(clone);
+    return group;
+}
+
+// --- Create label sprite showing agent name + instrument type ---
+
+function createPlacementLabel(botName, instrumentType) {
+    const config = INSTRUMENT_MODELS[instrumentType] || {};
+    const color = config.color || 0x888888;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = 256;
+    canvas.height = 64;
+    const ctx = canvas.getContext('2d');
+
+    // Background
+    ctx.fillStyle = 'rgba(5, 14, 22, 0.72)';
+    ctx.beginPath();
+    ctx.roundRect(0, 0, 256, 64, 10);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(198, 240, 248, 0.24)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.roundRect(1, 1, 254, 62, 10);
+    ctx.stroke();
+
+    // Instrument type indicator
+    const rgb = new THREE.Color(color);
+    ctx.fillStyle = `rgb(${Math.round(rgb.r * 255)}, ${Math.round(rgb.g * 255)}, ${Math.round(rgb.b * 255)})`;
+    ctx.beginPath();
+    ctx.arc(20, 32, 6, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Text
+    ctx.fillStyle = '#c6f0f8';
+    ctx.font = '500 18px "IBM Plex Mono", monospace';
+    ctx.textAlign = 'left';
+    const displayName = botName.length > 14 ? botName.slice(0, 12) + '..' : botName;
+    ctx.fillText(displayName, 34, 38);
+
+    const texture = new THREE.CanvasTexture(canvas);
+    const mat = new THREE.SpriteMaterial({ map: texture, transparent: true, opacity: 0.9 });
+    const sprite = new THREE.Sprite(mat);
+    sprite.position.set(0, 2.2, 0);
+    sprite.scale.set(1.6, 0.42, 1);
+    return sprite;
+}
+
+// --- Create base pad under instrument ---
+
+function createBasePad(instrumentType) {
+    const config = INSTRUMENT_MODELS[instrumentType] || {};
+    const color = config.color || 0x888888;
+
+    const group = new THREE.Group();
+
+    const pad = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.9, 0.96, 0.08, 28),
+        new THREE.MeshStandardMaterial({
+            color: 0x1a3f53,
+            roughness: 0.38,
+            metalness: 0.56,
+            emissive: 0x17313f,
+            emissiveIntensity: 0.2,
+        })
+    );
+    pad.position.y = 0.04;
+    pad.receiveShadow = true;
+    group.add(pad);
+
+    const ring = new THREE.Mesh(
+        new THREE.TorusGeometry(0.72, 0.05, 8, 30),
+        new THREE.MeshStandardMaterial({
+            color,
+            roughness: 0.26,
+            metalness: 0.52,
+            emissive: color,
+            emissiveIntensity: 0.28,
+        })
+    );
+    ring.position.y = 0.1;
+    ring.rotation.x = Math.PI / 2;
+    group.add(ring);
+
+    return group;
+}
+
+// --- Placement management ---
+
+function addPlacement(placement) {
+    if (livePlacements.has(placement.id)) return;
+    if (!sceneRef) return;
+
+    const group = new THREE.Group();
+    group.name = `music-placement-${placement.id}`;
+
+    // Base pad
+    const pad = createBasePad(placement.instrumentType);
+    group.add(pad);
+
+    // Instrument model
+    const instrument = createInstrumentModel(placement.instrumentType);
+    group.add(instrument);
+
+    // Label
+    const label = createPlacementLabel(placement.botName, placement.instrumentType);
+    group.add(label);
+
+    // Position in world
+    group.position.set(placement.position.x, 0, placement.position.z);
+
+    sceneRef.add(group);
+    livePlacements.set(placement.id, { group, placement });
+}
+
+function removePlacement(placementId) {
+    const entry = livePlacements.get(placementId);
+    if (!entry) return;
+
+    if (sceneRef) sceneRef.remove(entry.group);
+
+    // Dispose geometry/materials
+    entry.group.traverse((child) => {
+        if (child.isMesh) {
+            child.geometry?.dispose();
+            if (child.material) {
+                if (Array.isArray(child.material)) {
+                    child.material.forEach(m => m.dispose());
+                } else {
+                    child.material.dispose();
+                }
+            }
         }
-        case 'bass': {
-            const body = new THREE.Mesh(new THREE.BoxGeometry(0.15, 1.2, 0.08), mat);
-            body.position.set(0, 0.7, 0);
-            body.rotation.z = 0.15;
-            group.add(body);
-            break;
+        if (child.isSprite && child.material) {
+            child.material.map?.dispose();
+            child.material.dispose();
         }
-        case 'chords': {
-            const body = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.08, 0.3), mat);
-            body.position.set(0, 0.7, 0);
-            group.add(body);
-            const leg1 = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.65, 6), mat);
-            leg1.position.set(-0.3, 0.35, 0);
-            group.add(leg1);
-            const leg2 = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.65, 6), mat);
-            leg2.position.set(0.3, 0.35, 0);
-            group.add(leg2);
-            break;
-        }
-        case 'melody': {
-            const body = new THREE.Mesh(new THREE.ConeGeometry(0.15, 0.6, 8), mat);
-            body.position.set(0, 0.9, 0);
-            group.add(body);
-            const stick = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.5, 6), mat);
-            stick.position.set(0, 0.55, 0);
-            group.add(stick);
-            break;
-        }
-        case 'wild': {
-            const body = new THREE.Mesh(new THREE.TorusGeometry(0.25, 0.08, 8, 16), mat);
-            body.position.set(0, 0.7, 0);
-            body.rotation.x = Math.PI / 2;
-            group.add(body);
-            break;
+    });
+
+    livePlacements.delete(placementId);
+}
+
+// Sync live placements with server snapshot
+export function updatePlacements(snapshot) {
+    const serverIds = new Set();
+    const placements = snapshot?.placements || [];
+
+    for (const placement of placements) {
+        serverIds.add(placement.id);
+        if (!livePlacements.has(placement.id)) {
+            addPlacement(placement);
         }
     }
 
-    return group;
+    // Remove placements that no longer exist on server
+    for (const [id] of livePlacements) {
+        if (!serverIds.has(id)) {
+            removePlacement(id);
+        }
+    }
 }
 
-// --- Create a real instrument from cached GLB ---
-
-function createInstrument(info) {
-    const template = modelCache.get(info.type);
-    if (!template) return createPlaceholderInstrument(info);
-
-    const group = new THREE.Group();
-    group.name = `instrument-${info.id}`;
-
-    // Clone the loaded model
-    const clone = template.clone();
-    group.add(clone);
-
-    return group;
+export function getModelConfig() {
+    return INSTRUMENT_MODELS;
 }
 
-// --- Create slot label sprite ---
+// Stub: slot ring was removed in spatial placement rewrite.
+// Avatars still call this — return null so assignToSlot() gracefully no-ops.
+export function getSlotPosition() {
+    return null;
+}
 
-function createLabel(info) {
-    const canvas = document.createElement('canvas');
-    canvas.width = 128;
-    canvas.height = 64;
-    const ctx = canvas.getContext('2d');
-    ctx.fillStyle = 'rgba(0,0,0,0.5)';
-    ctx.roundRect(0, 0, 128, 64, 8);
-    ctx.fill();
-    ctx.fillStyle = '#' + info.color.toString(16).padStart(6, '0');
-    ctx.font = 'bold 28px monospace';
-    ctx.textAlign = 'center';
-    ctx.fillText(`${info.label} ${info.id}`, 64, 40);
+// Debug tuning stubs — update cached model transforms for live tweaking
+export function setTypeScale(type, value) {
+    const config = INSTRUMENT_MODELS[type];
+    if (config) config.scale = value;
+    const template = modelCache.get(type);
+    if (template) template.scale.setScalar(value);
+}
 
-    const texture = new THREE.CanvasTexture(canvas);
-    const mat = new THREE.SpriteMaterial({ map: texture, transparent: true, opacity: 0.8 });
-    const sprite = new THREE.Sprite(mat);
-    sprite.position.set(0, 2.0, 0);
-    sprite.scale.set(1, 0.5, 1);
-    return sprite;
+export function setTypeYOffset(type, value) {
+    const config = INSTRUMENT_MODELS[type];
+    if (config) config.yOffset = value;
+    const template = modelCache.get(type);
+    if (template) template.position.y = value;
+}
+
+export function setTypeRotation(type, value) {
+    const config = INSTRUMENT_MODELS[type];
+    if (config) config.rot = value;
+    const template = modelCache.get(type);
+    if (template) template.rotation.y = value;
 }
 
 // --- Init ---
 
 export async function init(scene) {
-    // Start loading GLB models
+    sceneRef = scene;
+
+    // Preload all instrument models
     await preloadModels();
 
-    for (let i = 0; i < SLOT_COUNT; i++) {
-        const info = SLOT_INFO[i];
-
-        // Calculate position on semicircle
-        const t = i / (SLOT_COUNT - 1);
-        const angle = ARC_START + t * (ARC_END - ARC_START);
-
-        // Semicircle in XZ plane, opening toward +Z (camera)
-        const x = Math.cos(angle) * RADIUS;
-        const z = -Math.sin(angle) * RADIUS + 2;
-
-        const position = new THREE.Vector3(x, 0, z);
-        const rotation = angle + Math.PI / 2;
-
-        positions.push({ position, rotation, info });
-
-        // Create instrument (real GLB or placeholder fallback)
-        const instrument = createInstrument(info);
-        instrument.position.copy(position);
-        instrument.rotation.y = rotation;
-        scene.add(instrument);
-
-        placedInstruments.push({ group: instrument, info });
-
-        // Floating label
-        const label = createLabel(info);
-        label.position.add(position);
-        scene.add(label);
-    }
-
-    console.log(`[instruments] Placed ${SLOT_COUNT} instruments`);
+    console.log(`[instruments] Spatial mode: ${modelCache.size} instrument models loaded`);
 }

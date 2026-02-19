@@ -1,5 +1,5 @@
 {
-  "name": "the-music-place",
+  "name": "synthmob",
   "type": "module",
   "private": true,
   "scripts": {
@@ -11,16 +11,21 @@
     "test:curl": "bash test/curl-test.sh",
     "test:smoke": "bash test/ci-smoke.sh",
     "test:stress": "bun run test/llm-stress-test.ts",
+    "admin:reset": "bun run test/admin-reset.ts",
+    "admin:reset:live": "API_URL=https://synthmob.fly.dev/api bun run test/admin-reset.ts",
     "ci:verify": "bun run typecheck && bun run test:smoke"
   },
   "devDependencies": {
     "@types/bun": "latest",
-    "@types/node": "^25.2.3"
+    "@types/node": "^25.2.3",
+    "playwright": "^1.58.2"
   },
   "peerDependencies": {
     "typescript": "^5"
   },
   "dependencies": {
+    "@noble/curves": "^2.0.1",
+    "@noble/hashes": "^2.0.1",
     "hono": "^4.11.9"
   }
 }

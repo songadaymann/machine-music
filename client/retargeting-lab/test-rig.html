@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Rig Test — Blender Auto-Rigged Avatar</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #1a1a2e; color: #eee; font-family: monospace; overflow: hidden; }
+  canvas { display: block; }
+  #hud {
+    position: fixed; top: 12px; left: 12px; z-index: 10;
+    background: rgba(0,0,0,0.7); padding: 12px 16px; border-radius: 8px;
+    font-size: 13px; line-height: 1.6;
+  }
+  #hud button {
+    margin: 4px 4px 4px 0; padding: 4px 10px; cursor: pointer;
+    background: #334; color: #aef; border: 1px solid #556; border-radius: 4px;
+    font-family: monospace; font-size: 13px;
+  }
+  #hud button:hover { background: #445; }
+  #hud button.active { background: #2a6e5a; color: #fff; border-color: #3a8e6a; }
+  #hud select {
+    margin-top: 6px;
+    width: 100%;
+    background: #111827;
+    color: #dbeafe;
+    border: 1px solid #334155;
+    border-radius: 4px;
+    padding: 4px 6px;
+    font-family: monospace;
+    font-size: 12px;
+  }
+  #log { position: fixed; bottom: 12px; left: 12px; right: 12px; z-index: 10;
+    background: rgba(0,0,0,0.7); padding: 10px; border-radius: 8px;
+    font-size: 11px; max-height: 180px; overflow-y: auto; white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<div id="hud">
+  <div><strong>Blender Auto-Rigged Avatar Test</strong></div>
+  <div id="status">Loading...</div>
+  <select id="modelSelect" title="Select model"></select>
+  <div id="buttons"></div>
+  <div style="margin-top:8px; font-size:11px; color:#888;">
+    Orbit: drag | Zoom: scroll | Pan: right-drag
+  </div>
+</div>
+<div id="log"></div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+  }
+}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+const DEFAULT_MODEL_URL = '/generated-avatars/test-rigged.glb';
+const MANIFEST_URL = '/generated-avatars/retargeting-lab/manifest.json';
+const URL_PARAMS = new URLSearchParams(window.location.search);
+const RETARGET_MODE = URL_PARAMS.get('retarget') === 'direct' ? 'direct' : 'rest-delta';
+const KEEP_ROOT_TRANSLATION = URL_PARAMS.get('root') === '1';
+const ANIM_BASE = '/models/animations/';
+const ANIM_FILES = {
+  idle: 'idle.glb',
+  walk: 'walk.glb',
+  drums: 'drums.glb',
+  bass: 'bass.glb',
+  guitar: 'guitar.glb',
+  piano: 'piano.glb',
+  punch: 'punch.glb',
+  fallingDown: 'fallingDown.glb',
+  gettingUp: 'gettingUp.glb',
+};
+
+const logEl = document.getElementById('log');
+const statusEl = document.getElementById('status');
+const modelSelectEl = document.getElementById('modelSelect');
+const buttonsEl = document.getElementById('buttons');
+
+function log(msg) {
+  console.log(msg);
+  logEl.textContent += msg + '\n';
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+function parseTrackTarget(trackName) {
+  const dotIdx = trackName.indexOf('.');
+  if (dotIdx === -1) return null;
+  let nodeName = trackName.substring(0, dotIdx);
+  const property = trackName.substring(dotIdx); // includes leading '.'
+  if (nodeName.includes('/')) nodeName = nodeName.split('/').pop();
+  if (nodeName.includes('|')) nodeName = nodeName.split('|').pop();
+  return { nodeName, property };
+}
+
+function addNameVariants(map, name, value) {
+  if (!name) return;
+  map.set(name, value);
+  if (name.startsWith('mixamorig:')) {
+    map.set(name.replace('mixamorig:', 'mixamorig'), value);
+  } else if (name.startsWith('mixamorig') && !name.includes(':')) {
+    map.set(name.replace('mixamorig', 'mixamorig:'), value);
+  }
+}
+
+function buildNodeLookup(root) {
+  const map = new Map();
+  root.traverse((child) => {
+    if (child && child.name) addNameVariants(map, child.name, child);
+  });
+  return map;
+}
+
+function buildBindPoseQuaternionLookup(root) {
+  const map = new Map();
+  const skeletons = new Set();
+  root.traverse((child) => {
+    if (child?.isSkinnedMesh && child.skeleton) skeletons.add(child.skeleton);
+  });
+
+  for (const skeleton of skeletons) {
+    const bones = Array.isArray(skeleton.bones) ? skeleton.bones : [];
+    const inverses = Array.isArray(skeleton.boneInverses) ? skeleton.boneInverses : [];
+    if (bones.length === 0 || inverses.length !== bones.length) continue;
+
+    const bindWorldMats = inverses.map((inv) => inv.clone().invert());
+    const indexByBone = new Map();
+    bones.forEach((bone, index) => {
+      indexByBone.set(bone, index);
+    });
+
+    for (let i = 0; i < bones.length; i++) {
+      const bone = bones[i];
+      const parent = bone.parent;
+      let localBind = bindWorldMats[i].clone();
+      if (parent && indexByBone.has(parent)) {
+        const pIdx = indexByBone.get(parent);
+        const parentBindInv = bindWorldMats[pIdx].clone().invert();
+        localBind = parentBindInv.multiply(bindWorldMats[i].clone());
+      }
+      const quat = new THREE.Quaternion().setFromRotationMatrix(localBind).normalize();
+      addNameVariants(map, bone.name, quat);
+    }
+  }
+
+  return map;
+}
+
+function normalizeTargetNodeName(sourceNodeName, targetNameSet, usesColon) {
+  let nodeName = sourceNodeName;
+  if (!targetNameSet.has(nodeName)) {
+    if (usesColon && nodeName.startsWith('mixamorig') && !nodeName.includes(':')) {
+      nodeName = 'mixamorig:' + nodeName.substring('mixamorig'.length);
+    } else if (!usesColon && nodeName.includes('mixamorig:')) {
+      nodeName = nodeName.replace('mixamorig:', 'mixamorig');
+    }
+  }
+  return nodeName;
+}
+
+function retargetQuaternionValuesRestDelta(values, sourceRestQuat, targetRestQuat) {
+  const out = new Float32Array(values.length);
+  const srcInv = sourceRestQuat.clone().invert();
+  const qAnim = new THREE.Quaternion();
+  const qDelta = new THREE.Quaternion();
+  const qOut = new THREE.Quaternion();
+  for (let i = 0; i < values.length; i += 4) {
+    qAnim.set(values[i], values[i + 1], values[i + 2], values[i + 3]).normalize();
+    qDelta.copy(srcInv).multiply(qAnim).normalize();
+    qOut.copy(targetRestQuat).multiply(qDelta).normalize();
+    out[i] = qOut.x;
+    out[i + 1] = qOut.y;
+    out[i + 2] = qOut.z;
+    out[i + 3] = qOut.w;
+  }
+  return out;
+}
+
+function sanitizeLabel(value, fallback = 'unnamed') {
+  if (typeof value !== 'string') return fallback;
+  const text = value.trim();
+  return text.length > 0 ? text : fallback;
+}
+
+async function loadModelOptions() {
+  const defaultOption = {
+    id: 'default',
+    label: 'Default: test-rigged',
+    url: DEFAULT_MODEL_URL,
+  };
+
+  try {
+    const response = await fetch(MANIFEST_URL, { cache: 'no-store' });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const manifest = await response.json();
+    const modelsRaw = Array.isArray(manifest?.models) ? manifest.models : [];
+    const models = modelsRaw
+      .map((entry, index) => {
+        const url = typeof entry?.url === 'string' ? entry.url : null;
+        if (!url) return null;
+        const variantId = sanitizeLabel(entry?.variantId ?? '', `variant-${index}`);
+        const sampleId = sanitizeLabel(entry?.sampleId ?? '', `sample-${index}`);
+        const label = sanitizeLabel(entry?.label ?? '', `${variantId} / ${sampleId}`);
+        return {
+          id: sanitizeLabel(entry?.id ?? '', `${variantId}--${sampleId}`),
+          label,
+          url,
+        };
+      })
+      .filter(Boolean);
+
+    if (models.length === 0) {
+      log(`Manifest loaded but no models found: ${MANIFEST_URL}`);
+      return [defaultOption];
+    }
+
+    log(`Manifest loaded: ${models.length} lab models`);
+    return [defaultOption, ...models];
+  } catch (err) {
+    const message = err?.message || String(err);
+    log(`No lab manifest found (${message}); using default model only.`);
+    return [defaultOption];
+  }
+}
+
+function getRequestedModelUrl(options) {
+  const params = new URLSearchParams(window.location.search);
+  const requested = params.get('model');
+  if (!requested) return options[0].url;
+
+  const known = options.some((option) => option.url === requested);
+  return known ? requested : options[0].url;
+}
+
+function applyModelQuery(url) {
+  const params = new URLSearchParams(window.location.search);
+  if (url === DEFAULT_MODEL_URL) {
+    params.delete('model');
+  } else {
+    params.set('model', url);
+  }
+  const query = params.toString();
+  const next = `${window.location.pathname}${query ? `?${query}` : ''}`;
+  window.location.assign(next);
+}
+
+function buildModelSelector(options, selectedUrl) {
+  modelSelectEl.innerHTML = '';
+  for (const option of options) {
+    const el = document.createElement('option');
+    el.value = option.url;
+    el.textContent = option.label;
+    if (option.url === selectedUrl) el.selected = true;
+    modelSelectEl.appendChild(el);
+  }
+
+  modelSelectEl.addEventListener('change', () => {
+    const nextUrl = modelSelectEl.value;
+    if (nextUrl === selectedUrl) return;
+    applyModelQuery(nextUrl);
+  });
+}
+
+// --- Scene setup ---
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.2;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x1a1a2e);
+
+const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100);
+camera.position.set(0, 1.5, 4);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 1, 0);
+controls.update();
+
+// Lights
+const ambient = new THREE.AmbientLight(0xffffff, 0.5);
+scene.add(ambient);
+const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
+dirLight.position.set(3, 5, 4);
+scene.add(dirLight);
+const fillLight = new THREE.DirectionalLight(0x8888ff, 0.4);
+fillLight.position.set(-3, 2, -2);
+scene.add(fillLight);
+
+// Ground
+const ground = new THREE.Mesh(
+  new THREE.PlaneGeometry(10, 10),
+  new THREE.MeshStandardMaterial({ color: 0x333344, roughness: 0.9 })
+);
+ground.rotation.x = -Math.PI / 2;
+ground.receiveShadow = true;
+scene.add(ground);
+
+// Grid
+const grid = new THREE.GridHelper(10, 20, 0x555566, 0x333344);
+scene.add(grid);
+
+// --- Skeleton helper (toggle-able) ---
+let skeletonHelper = null;
+
+// --- Load model + animations ---
+const loader = new GLTFLoader();
+function loadGLB(url) {
+  return new Promise((resolve, reject) => {
+    loader.load(url, resolve, undefined, reject);
+  });
+}
+
+let mixer = null;
+const actions = {};
+let currentAction = null;
+let avatarGroup = null;
+
+async function init() {
+  try {
+    log(`Retarget mode: ${RETARGET_MODE}${KEEP_ROOT_TRANSLATION ? ' (root translation kept)' : ' (rotation-only)'}`);
+    const modelOptions = await loadModelOptions();
+    const modelUrl = getRequestedModelUrl(modelOptions);
+    buildModelSelector(modelOptions, modelUrl);
+
+    // Load rigged model
+    log(`Loading model: ${modelUrl}`);
+    const modelGltf = await loadGLB(modelUrl);
+
+    // Inspect rig
+    const bones = [];
+    const skinnedMeshes = [];
+    modelGltf.scene.traverse((child) => {
+      if (child.isBone) bones.push(child.name);
+      if (child.isSkinnedMesh) skinnedMeshes.push(child.name);
+    });
+
+    log(`Skinned meshes: ${skinnedMeshes.length}`);
+    log(`Bones: ${bones.length} — ${bones.slice(0, 6).join(', ')}...`);
+
+    if (bones.length === 0) {
+      log('WARNING: No bones found! Rig may not have exported correctly.');
+    }
+
+    // Detect colon convention
+    const usesColon = bones.some(n => n.includes('mixamorig:'));
+    log(`Bone naming: ${usesColon ? 'mixamorig:Xxx (colon)' : 'mixamorigXxx (no colon)'}`);
+
+    const targetNodeNameSet = new Set();
+    modelGltf.scene.traverse((child) => {
+      if (child.name) targetNodeNameSet.add(child.name);
+    });
+    const targetNodeLookup = buildNodeLookup(modelGltf.scene);
+    const targetBindQuatLookup = buildBindPoseQuaternionLookup(modelGltf.scene);
+    log(`Target bind-pose quaternions: ${targetBindQuatLookup.size}`);
+
+    // Scale model to ~1.8m
+    const box = new THREE.Box3().setFromObject(modelGltf.scene);
+    const height = box.max.y - box.min.y;
+    const targetHeight = 1.8;
+    const scale = targetHeight / Math.max(height, 0.001);
+    modelGltf.scene.scale.setScalar(scale);
+
+    // Offset so feet touch ground
+    const scaledBox = new THREE.Box3().setFromObject(modelGltf.scene);
+    modelGltf.scene.position.y = -scaledBox.min.y;
+
+    log(`Model height: ${height.toFixed(3)} → scaled to ${targetHeight}m (scale: ${scale.toFixed(3)})`);
+
+    avatarGroup = new THREE.Group();
+    avatarGroup.add(modelGltf.scene);
+    scene.add(avatarGroup);
+
+    // Skeleton helper
+    skeletonHelper = new THREE.SkeletonHelper(modelGltf.scene);
+    skeletonHelper.visible = false;
+    scene.add(skeletonHelper);
+
+    // Set up animation mixer
+    mixer = new THREE.AnimationMixer(avatarGroup);
+
+    // Load animation GLBs
+    log('Loading animations...');
+    const animEntries = Object.entries(ANIM_FILES);
+    const results = await Promise.allSettled(
+      animEntries.map(([name, file]) =>
+        loadGLB(ANIM_BASE + file).then(gltf => ({ name, gltf }))
+      )
+    );
+
+    let loadedCount = 0;
+    for (const result of results) {
+      if (result.status !== 'fulfilled') {
+        log(`  FAILED: ${result.reason}`);
+        continue;
+      }
+      const { name, gltf } = result.value;
+      if (!gltf.animations || gltf.animations.length === 0) {
+        log(`  ${name}: no clips`);
+        continue;
+      }
+
+      const sourceNodeLookup = buildNodeLookup(gltf.scene);
+      const sourceBindQuatLookup = buildBindPoseQuaternionLookup(gltf.scene);
+      const sourceClip = gltf.animations[0];
+      sourceClip.name = name;
+
+      // Retarget track names (same logic as avatars.js)
+      let retargetCount = 0;
+      let matchedCount = 0;
+      let unmatchedCount = 0;
+      let restDeltaCount = 0;
+      let droppedPositionCount = 0;
+      const newTracks = [];
+
+      for (const track of sourceClip.tracks) {
+        const parsed = parseTrackTarget(track.name);
+        if (!parsed) continue;
+        const sourceNodeName = parsed.nodeName;
+        const prop = parsed.property;
+        const targetNodeName = normalizeTargetNodeName(sourceNodeName, targetNodeNameSet, usesColon);
+        if (targetNodeName !== sourceNodeName) retargetCount++;
+
+        if (!targetNodeNameSet.has(targetNodeName)) {
+          unmatchedCount++;
+          continue;
+        }
+        matchedCount++;
+
+        if (prop === '.position') {
+          const isHips = targetNodeName.endsWith('Hips');
+          if (!KEEP_ROOT_TRANSLATION || !isHips) {
+            droppedPositionCount++;
+            continue;
+          }
+        }
+
+        if (prop === '.quaternion' && RETARGET_MODE === 'rest-delta') {
+          const sourceNode = sourceNodeLookup.get(sourceNodeName) || sourceNodeLookup.get(targetNodeName);
+          const targetNode = targetNodeLookup.get(targetNodeName);
+          const sourceRestQuat =
+            sourceBindQuatLookup.get(sourceNodeName) ||
+            sourceBindQuatLookup.get(targetNodeName) ||
+            sourceNode?.quaternion;
+          const targetRestQuat =
+            targetBindQuatLookup.get(targetNodeName) ||
+            targetNode?.quaternion;
+
+          if (sourceRestQuat && targetRestQuat) {
+            const values = retargetQuaternionValuesRestDelta(
+              track.values,
+              sourceRestQuat,
+              targetRestQuat
+            );
+            const times = track.times.slice();
+            const trackName = `${targetNodeName}.quaternion`;
+            newTracks.push(new THREE.QuaternionKeyframeTrack(trackName, times, values));
+            restDeltaCount++;
+            continue;
+          }
+        }
+
+        const cloned = track.clone();
+        cloned.name = targetNodeName + prop;
+        newTracks.push(cloned);
+      }
+
+      const clip = new THREE.AnimationClip(name, sourceClip.duration, newTracks);
+
+      actions[name] = mixer.clipAction(clip);
+      loadedCount++;
+      log(
+        `  ${name}: ${sourceClip.tracks.length} src, ${clip.tracks.length} out, ` +
+        `${matchedCount} matched, ${unmatchedCount} unmatched, ${retargetCount} renamed, ` +
+        `${restDeltaCount} rest-delta, ${droppedPositionCount} pos dropped`
+      );
+    }
+
+    log(`Loaded ${loadedCount}/${animEntries.length} animations`);
+
+    // Build UI buttons
+    const animNames = Object.keys(actions);
+    for (const name of animNames) {
+      const btn = document.createElement('button');
+      btn.textContent = name;
+      btn.onclick = () => playAnim(name);
+      buttonsEl.appendChild(btn);
+    }
+
+    // Skeleton toggle
+    const skelBtn = document.createElement('button');
+    skelBtn.textContent = 'skeleton';
+    skelBtn.onclick = () => {
+      skeletonHelper.visible = !skeletonHelper.visible;
+      skelBtn.classList.toggle('active', skeletonHelper.visible);
+    };
+    buttonsEl.appendChild(skelBtn);
+
+    // Play idle by default
+    if (actions.idle) {
+      playAnim('idle');
+    } else if (animNames.length > 0) {
+      playAnim(animNames[0]);
+    }
+
+    const selectedLabel = modelOptions.find((option) => option.url === modelUrl)?.label || modelUrl;
+    statusEl.textContent = `Model loaded (${selectedLabel}) — ${bones.length} bones, ${loadedCount} animations`;
+  } catch (err) {
+    log(`ERROR: ${err.message}`);
+    statusEl.textContent = 'Failed to load — see log';
+    console.error(err);
+  }
+}
+
+function playAnim(name) {
+  if (!actions[name]) return;
+
+  // Update button states
+  for (const btn of buttonsEl.children) {
+    btn.classList.toggle('active', btn.textContent === name);
+  }
+
+  if (currentAction) {
+    const prev = actions[currentAction];
+    prev.fadeOut(0.3);
+  }
+
+  const next = actions[name];
+  next.reset().fadeIn(0.3).play();
+  currentAction = name;
+  log(`Playing: ${name}`);
+}
+
+// --- Render loop ---
+const clock = new THREE.Clock();
+function animate() {
+  requestAnimationFrame(animate);
+  const delta = clock.getDelta();
+  if (mixer) mixer.update(delta);
+  controls.update();
+  renderer.render(scene, camera);
+}
+animate();
+
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+init();
+</script>
+</body>
+</html>

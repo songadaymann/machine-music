@@ -5,7 +5,7 @@ if [[ -z "${PORT:-}" ]]; then
   PORT="$((20000 + (RANDOM % 20000)))"
 fi
 API_BASE="http://localhost:${PORT}/api"
-SERVER_LOG="$(mktemp -t music-place-server.XXXXXX.log)"
+SERVER_LOG="$(mktemp -t synthmob-server.XXXXXX.log)"
 
 cleanup() {
   if [[ -n "${SERVER_PID:-}" ]] && kill -0 "$SERVER_PID" 2>/dev/null; then

@@ -1,0 +1,124 @@
+{
+  "items": {
+    "tree_oak": {
+      "name": "Oak Tree",
+      "category": "nature",
+      "file": "tree_oak.glb",
+      "description": "A broad leafy oak tree"
+    },
+    "tree_pine": {
+      "name": "Pine Tree",
+      "category": "nature",
+      "file": "tree_pine.glb",
+      "description": "A tall conifer"
+    },
+    "bush": {
+      "name": "Bush",
+      "category": "nature",
+      "file": "bush.glb",
+      "description": "A round green bush"
+    },
+    "rock_large": {
+      "name": "Large Rock",
+      "category": "nature",
+      "file": "rock_large.glb",
+      "description": "A big boulder"
+    },
+    "rock_small": {
+      "name": "Small Rock",
+      "category": "nature",
+      "file": "rock_small.glb",
+      "description": "A small stone"
+    },
+    "mushroom": {
+      "name": "Mushroom",
+      "category": "nature",
+      "file": "mushroom.glb",
+      "description": "A red-capped mushroom"
+    },
+    "flower": {
+      "name": "Flower",
+      "category": "nature",
+      "file": "flower.glb",
+      "description": "A colorful flower"
+    },
+    "bench": {
+      "name": "Bench",
+      "category": "urban",
+      "file": "bench.glb",
+      "description": "A park bench"
+    },
+    "lamppost": {
+      "name": "Lamppost",
+      "category": "urban",
+      "file": "lamppost.glb",
+      "description": "A street light"
+    },
+    "barrel": {
+      "name": "Barrel",
+      "category": "urban",
+      "file": "barrel.glb",
+      "description": "A wooden barrel"
+    },
+    "crate": {
+      "name": "Crate",
+      "category": "urban",
+      "file": "crate.glb",
+      "description": "A wooden crate"
+    },
+    "fence": {
+      "name": "Fence Segment",
+      "category": "urban",
+      "file": "fence.glb",
+      "description": "A wooden fence panel"
+    },
+    "column": {
+      "name": "Column",
+      "category": "building",
+      "file": "column.glb",
+      "description": "A stone column"
+    },
+    "arch": {
+      "name": "Arch",
+      "category": "building",
+      "file": "arch.glb",
+      "description": "A stone archway"
+    },
+    "sign": {
+      "name": "Sign Post",
+      "category": "decor",
+      "file": "sign.glb",
+      "description": "A wooden sign post"
+    },
+    "torch": {
+      "name": "Torch",
+      "category": "decor",
+      "file": "torch.glb",
+      "description": "A wall torch with flame"
+    },
+    "campfire": {
+      "name": "Campfire",
+      "category": "nature",
+      "file": "campfire.glb",
+      "description": "A stone ring campfire"
+    },
+    "staircase": {
+      "name": "Staircase",
+      "category": "building",
+      "file": "staircase.glb",
+      "description": "A stone staircase"
+    },
+    "chest": {
+      "name": "Chest",
+      "category": "decor",
+      "file": "chest.glb",
+      "description": "A treasure chest"
+    },
+    "flag": {
+      "name": "Flag",
+      "category": "decor",
+      "file": "flag.glb",
+      "description": "A flag on a pole"
+    }
+  }
+}

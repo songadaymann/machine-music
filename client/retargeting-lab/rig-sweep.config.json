@@ -1,0 +1,80 @@
+{
+  "schemaVersion": "1.0",
+  "description": "Config-driven rig sweep for Mixamo-compatible autorig experiments.",
+  "requiredBonesCore": [
+    "mixamorig:Hips",
+    "mixamorig:Spine",
+    "mixamorig:Spine1",
+    "mixamorig:Spine2",
+    "mixamorig:Neck",
+    "mixamorig:Head",
+    "mixamorig:HeadTop_End",
+    "mixamorig:LeftShoulder",
+    "mixamorig:LeftArm",
+    "mixamorig:LeftForeArm",
+    "mixamorig:LeftHand",
+    "mixamorig:RightShoulder",
+    "mixamorig:RightArm",
+    "mixamorig:RightForeArm",
+    "mixamorig:RightHand",
+    "mixamorig:LeftUpLeg",
+    "mixamorig:LeftLeg",
+    "mixamorig:LeftFoot",
+    "mixamorig:LeftToeBase",
+    "mixamorig:RightUpLeg",
+    "mixamorig:RightLeg",
+    "mixamorig:RightFoot",
+    "mixamorig:RightToeBase"
+  ],
+  "animationClips": [
+    "idle.glb",
+    "walk.glb",
+    "drums.glb",
+    "punch.glb",
+    "fallingDown.glb"
+  ],
+  "variants": [
+    {
+      "id": "template-distance-core",
+      "description": "Template skeleton + distance weights on Mixamo core deformation bones.",
+      "autorigConfig": {
+        "rig_source": "mixamo_template",
+        "skinning_method": "distance",
+        "distance_weight_bone_scope": "core",
+        "distance_use_anatomy_masks": true,
+        "weight_top_n": 4,
+        "weight_falloff_strength": 2.0,
+        "min_weight_threshold": 0.01,
+        "max_influences": 4
+      }
+    },
+    {
+      "id": "template-distance-full",
+      "description": "Template skeleton + distance weights across all Mixamo bones (incl. fingers).",
+      "autorigConfig": {
+        "rig_source": "mixamo_template",
+        "skinning_method": "distance",
+        "distance_weight_bone_scope": "all",
+        "distance_use_anatomy_masks": false,
+        "weight_top_n": 6,
+        "weight_falloff_strength": 1.2,
+        "min_weight_threshold": 0.002,
+        "max_influences": 6
+      }
+    },
+    {
+      "id": "template-distance-tight",
+      "description": "Template skeleton + tighter distance skinning for rigid/joint-heavy deforms.",
+      "autorigConfig": {
+        "rig_source": "mixamo_template",
+        "skinning_method": "distance",
+        "distance_weight_bone_scope": "core",
+        "distance_use_anatomy_masks": true,
+        "weight_top_n": 3,
+        "weight_falloff_strength": 3.0,
+        "min_weight_threshold": 0.02,
+        "max_influences": 3
+      }
+    }
+  ]
+}
