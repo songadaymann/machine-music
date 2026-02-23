@@ -68,7 +68,7 @@ TOKEN2=$(echo "$REG2" | grep -o '"token":"[^"]*"' | cut -d'"' -f4)
 echo "4b. GET /wayfinding/arena"
 WF_ARENA=$(curl -s "$API/wayfinding/arena")
 check "arena has continuous_space mode" '"continuous_space"' "$WF_ARENA"
-check "arena has 50m radius" '"arenaRadiusM":50' "$WF_ARENA"
+check "arena is unbounded" '"worldBounded":false' "$WF_ARENA"
 
 echo "4c. GET /wayfinding/actions"
 WF_ACTIONS=$(curl -s "$API/wayfinding/actions")

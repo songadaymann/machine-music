@@ -717,17 +717,35 @@ api.post("/world", async (c) => {
     return c.json({ error: "unauthorized" }, 401);
   }
 
-  let body: { output?: unknown };
+  let body: Record<string, unknown>;
   try {
     body = await c.req.json();
   } catch {
     return c.json({ error: "invalid_json" }, 400);
   }
 
-  // If output is missing/null/empty, clear this agent's contribution
+  // Empty body {} = intentional clear (documented behavior)
+  if (Object.keys(body).length === 0) {
+    const snapshot = state.clearWorldContribution(agent.id);
+    return c.json({ ok: true, cleared: true, snapshot });
+  }
+
+  // Body has keys but no "output" wrapper — common mistake, return helpful error
+  if (!("output" in body)) {
+    const topKeys = Object.keys(body).slice(0, 5).join(", ");
+    return c.json(
+      {
+        error: "missing_output_wrapper",
+        message: `Your payload has top-level keys [${topKeys}] but they must be inside an "output" object. Send: { "output": { ${topKeys}: ... } }`,
+      },
+      400
+    );
+  }
+
+  // Explicit null or empty output = clear contribution
   if (!body.output || (typeof body.output === "object" && Object.keys(body.output as object).length === 0)) {
     const snapshot = state.clearWorldContribution(agent.id);
-    return c.json({ ok: true, snapshot });
+    return c.json({ ok: true, cleared: true, snapshot });
   }
 
   const parsed = parseStructuredOutput(body.output, validateWorldOutput);

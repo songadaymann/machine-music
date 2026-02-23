@@ -100,14 +100,14 @@ export function recoverAddress(message: string, sigHex: string): string {
   }
 
   const compact64 = sigBuf.slice(0, 64); // r(32) + s(32)
-  const v = sigBuf[64]; // 27 or 28
+  const v = sigBuf[64]!; // 27 or 28
   const recovery = v >= 27 ? v - 27 : v; // normalize to 0 or 1
 
   const sigObj = secp256k1.Signature.fromBytes(compact64).addRecoveryBit(
-    recovery
+    recovery as 0 | 1
   );
   const pubKeyPoint = sigObj.recoverPublicKey(msgHash);
-  const pubKeyBytes = pubKeyPoint.toRawBytes(false); // 65-byte uncompressed: 0x04 + x(32) + y(32)
+  const pubKeyBytes = pubKeyPoint.toBytes(false); // 65-byte uncompressed: 0x04 + x(32) + y(32)
 
   // Ethereum address = last 20 bytes of keccak256(pubkey without 0x04 prefix)
   const addrHash = keccak_256(pubKeyBytes.slice(1));

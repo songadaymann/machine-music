@@ -292,6 +292,20 @@ function buildGroundPlane() {
     return group;
 }
 
+// --- Ground material updates ---
+
+export function setGroundMaterial(props) {
+    const groundBase = scene?.getObjectByName('void-ground-base');
+    if (!groundBase) return;
+    const mat = groundBase.material;
+    if (props.color) mat.color.set(props.color);
+    if (props.metalness !== undefined) mat.metalness = props.metalness;
+    if (props.roughness !== undefined) mat.roughness = props.roughness;
+    if (props.emissive) mat.emissive.set(props.emissive);
+    if (props.emissiveIntensity !== undefined) mat.emissiveIntensity = props.emissiveIntensity;
+    mat.needsUpdate = true;
+}
+
 // --- Parcel overlay ---
 
 let parcelOverlayGroup = null;

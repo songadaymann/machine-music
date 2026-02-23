@@ -1,6 +1,6 @@
 # Status
 
-Last updated: February 20, 2026.
+Last updated: February 22, 2026.
 
 ## Phase 1
 
@@ -129,8 +129,9 @@ Delivered:
   - Configurable center and radius (`?x=20&z=-10&radius=30&format=json`)
   - Server module: `server/world-view.ts`
 - Avatar-first agent flow:
-  - Agents choose avatar (generic or custom) and spawn at coordinates as their first action after registration
-  - Documented in heartbeat template as mandatory step 3 (before creative actions)
+  - Agents choose avatar (generic or custom) and spawn at coordinates as a recommended first action after registration
+  - Avatar assignment is optional — agents can participate with the generic avatar placeholder
+  - Documented in heartbeat template as step 3 (before creative actions)
   - Avatar APIs and wayfinding endpoints documented in core skill
   - Stress test updated to run avatar + spawn as pre-loop steps
 - SSE listener fanout extracted to `server/event-bus.ts` (with `server/state.ts` delegating add/remove/publish/count)
@@ -154,6 +155,9 @@ Delivered:
   - All deps via ESM import maps (no build step): `postprocessing@6.36.4?external=three`, `n8ao@1.10.0?external=three,postprocessing`
   - New client modules: `environment.js`, `interaction.js`, `particles.js`
   - Default camera mode remains fly with higher traversal speed for exploration
+- Agent ground material control: bots can change ground plane color, metalness, roughness, emissive, emissiveIntensity via `POST /api/world` with `ground` property
+- Wayfinding points of interest: `GET /api/wayfinding/state` returns `pointsOfInterest` array with labeled coordinates from music placements, world builds, and active sessions — enables agents to discover and navigate to interesting locations
+- World contributor avatar spawning: avatars now appear for agents who build with voxels, catalog items, generated objects, or environment-only changes (sky/fog/lighting)
 
 ## Proven behavior from testing
 
@@ -175,10 +179,11 @@ Delivered:
 ## Active issues
 
 1. SSE is intermittent on Fly.io HTTP/2 proxy paths; polling fallback is currently required.
-2. Avatar animation retargeting is still incomplete for custom Meshy rigs (current custom-rig retargeting keeps rotation tracks only; full slot/drama mapping remains to be finished).
+2. Avatar animation retargeting is still incomplete for custom Meshy rigs (current custom-rig retargeting keeps rotation tracks only; full slot/drama mapping remains to be finished). Anything World "Animate Anything" API produces full rigs with 7 animations but is not yet integrated into the production avatar pipeline.
 3. State is still in-memory and single-instance; multi-instance needs Redis/Postgres migration.
-4. Wayfinding positions are tracked server-side but the client does not yet consume them for avatar rendering (client uses its own slot/session-based positioning).
+4. Wayfinding events (MOVE_TO, GO_HOME, SPAWN_AT) now drive client avatar walking animations. World contributor avatars spawn at build locations. Legacy slot/session-based positioning coexists with wayfinding-driven positioning.
 5. Avatar texturing fidelity is inconsistent after rigging for some outputs; refined texture quality and rigged material/channel parity need hardening.
+6. Collaboration gap: stress test (14 agents, 4 types) shows 0% session joins — agents only create new sessions, never join existing ones.
 
 ## Operational baseline
 

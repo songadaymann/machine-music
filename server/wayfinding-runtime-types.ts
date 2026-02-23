@@ -83,6 +83,12 @@ export interface AgentPositionView {
     type: string;
     actorBotName?: string;
   }>;
+  pointsOfInterest: Array<{
+    label: string;
+    x: number;
+    z: number;
+    type: "world" | "music" | "session" | "parcel";
+  }>;
 }
 
 export type WayfindingActionResult =

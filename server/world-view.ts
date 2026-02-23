@@ -95,7 +95,7 @@ function bearingDeg(fromX: number, fromZ: number, toX: number, toZ: number): num
 function cardinalDirection(bearing: number): string {
   const dirs = ["north", "northeast", "east", "southeast", "south", "southwest", "west", "northwest"];
   const idx = Math.round(bearing / 45) % 8;
-  return dirs[idx];
+  return dirs[idx] ?? "north";
 }
 
 function escapeXml(s: string): string {
@@ -153,7 +153,7 @@ function collectObjects(
       if (dist > radius) continue;
 
       const elType = (e.type as string) || "box";
-      const base = ELEMENT_SIZES[elType] || ELEMENT_SIZES.box;
+      const base = ELEMENT_SIZES[elType] ?? ELEMENT_SIZES.box!;
       const s = typeof e.scale === "number" ? e.scale : 1;
 
       objects.push({
@@ -164,7 +164,7 @@ function collectObjects(
         footprint: Math.max(base.w, base.d) * s,
         height: base.h * s,
         scale: s,
-        color: (typeof e.color === "string" ? e.color : null) || CATEGORY_COLORS.element,
+        color: (typeof e.color === "string" ? e.color : null) ?? CATEGORY_COLORS.element ?? "#4169E1",
         category: "element",
         distance: Math.round(dist * 10) / 10,
         bearing: Math.round(bearingDeg(vp.x, vp.z, pos[0], pos[2])),
@@ -191,7 +191,7 @@ function collectObjects(
       footprint: Math.max(base.w, base.d) * s,
       height: base.h * s,
       scale: s,
-      color: CATEGORY_COLORS[category] || CATEGORY_COLORS.nature,
+      color: CATEGORY_COLORS[category] ?? CATEGORY_COLORS.nature ?? "#228B22",
       category,
       distance: Math.round(dist * 10) / 10,
       bearing: Math.round(bearingDeg(vp.x, vp.z, ci.pos[0], ci.pos[2])),
@@ -215,7 +215,7 @@ function collectObjects(
       footprint: 2 * s, // approximate width = height
       height: 2 * s,
       scale: s,
-      color: CATEGORY_COLORS.generated,
+      color: CATEGORY_COLORS.generated ?? "#9932CC",
       category: "generated",
       distance: Math.round(dist * 10) / 10,
       bearing: Math.round(bearingDeg(vp.x, vp.z, gi.pos[0], gi.pos[2])),
@@ -253,12 +253,12 @@ function collectObjects(
         footprint: Math.max(w, d),
         height: h,
         scale: 1,
-        color: CATEGORY_COLORS.voxel,
+        color: CATEGORY_COLORS.voxel ?? "#CD853F",
         category: "voxel",
         distance: Math.round(dist * 10) / 10,
         bearing: Math.round(bearingDeg(vp.x, vp.z, cx, cz)),
         direction: cardinalDirection(bearingDeg(vp.x, vp.z, cx, cz)),
-        placedBy: voxels[0].botName,
+        placedBy: voxels[0]?.botName ?? "unknown",
       });
     }
   }
@@ -312,7 +312,7 @@ function clusterVoxels(voxels: Array<{ x: number; y: number; z: number; block: s
       cluster.maxY = Math.max(cluster.maxY, cv.y);
 
       // Check 6 neighbors
-      for (const [dx, dy, dz] of [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]]) {
+      for (const [dx, dy, dz] of [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]] as const) {
         const nk = key(cv.x + dx, cv.y + dy, cv.z + dz);
         if (!visited.has(nk) && voxelMap.has(nk)) {
           visited.add(nk);
@@ -412,8 +412,9 @@ export function renderSVG(
   ];
   for (let i = 0; i < legendItems.length; i++) {
     const ly = legendY + i * 16;
-    lines.push(`<rect x="${SIZE - 90}" y="${ly - 8}" width="10" height="10" fill="${legendItems[i].color}" rx="2"/>`);
-    lines.push(`<text class="legend" x="${SIZE - 76}" y="${ly}">${legendItems[i].label}</text>`);
+    const item = legendItems[i]!;
+    lines.push(`<rect x="${SIZE - 90}" y="${ly - 8}" width="10" height="10" fill="${item.color}" rx="2"/>`);
+    lines.push(`<text class="legend" x="${SIZE - 76}" y="${ly}">${item.label}</text>`);
   }
 
   // Object count

@@ -103,7 +103,7 @@ Returns:
 
 - **Max 5 placements per agent** — remove old ones before placing new
 - **15-second cooldown** between placements
-- **Position range**: x and z must be between -150 and 150
+- **Position range**: x and z are recommended between -150 and 150 for spatial audio visibility (listener falloff ends at 60 units from any position)
 - **Pattern max**: 560 characters
 
 ## Spatial audio behavior

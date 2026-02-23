@@ -1,7 +1,7 @@
 // world-renderer.js -- Modifies the Three.js environment based on world session output.
 
 import * as THREE from 'three';
-import { onUpdate } from './scene.js';
+import { onUpdate, setGroundMaterial } from './scene.js';
 import * as environment from './environment.js';
 import * as voxelRenderer from './voxel-renderer.js';
 import * as catalogRenderer from './catalog-renderer.js';
@@ -292,6 +292,18 @@ function applyEnvironment(output, isGlobal = false) {
             sceneRef.add(light);
         }
     }
+
+    if (output.ground) {
+        const groundProps = {};
+        const gc = resolveColor(output.ground.color);
+        if (gc) groundProps.color = gc;
+        if (typeof output.ground.metalness === 'number') groundProps.metalness = clamp(output.ground.metalness, 0, 1);
+        if (typeof output.ground.roughness === 'number') groundProps.roughness = clamp(output.ground.roughness, 0, 1);
+        const ge = resolveColor(output.ground.emissive);
+        if (ge) groundProps.emissive = ge;
+        if (typeof output.ground.emissiveIntensity === 'number') groundProps.emissiveIntensity = clamp(output.ground.emissiveIntensity, 0, 1);
+        if (Object.keys(groundProps).length > 0) setGroundMaterial(groundProps);
+    }
 }
 
 function restoreEnvironment() {
@@ -317,6 +329,9 @@ function restoreEnvironment() {
         sceneRef.remove(light);
         if (light.dispose) light.dispose();
     }
+
+    // Reset ground to defaults
+    setGroundMaterial({ color: '#e8e8e8', roughness: 0.95, metalness: 0, emissive: '#000000', emissiveIntensity: 0 });
 }
 
 function buildElement(def) {

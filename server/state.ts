@@ -9,6 +9,7 @@ import {
   type AgentPositionView,
   type WayfindingActionResult,
 } from "./wayfinding-runtime";
+import type { PointOfInterestSource } from "./wayfinding-view-builder";
 import { RitualRuntime, type RitualPublicView } from "./ritual";
 import { ParcelRegistry, type Parcel, type ParcelRegistrySnapshot } from "./parcels";
 
@@ -1149,7 +1150,75 @@ class State {
     return this.wayfinding.getState(agent, {
       parcelId: parcel?.id ?? null,
       parcelBounds: parcel?.bounds ?? null,
-    });
+    }, this.buildPointsOfInterest(agent.id));
+  }
+
+  private buildPointsOfInterest(agentId: string): PointOfInterestSource[] {
+    const pois: PointOfInterestSource[] = [];
+
+    // Music placements (skip own)
+    for (const p of this.musicPlacements.values()) {
+      if (p.agentId === agentId) continue;
+      pois.push({
+        label: `${p.instrumentType} by ${p.botName}`,
+        x: p.position.x,
+        z: p.position.z,
+        type: "music",
+      });
+    }
+
+    // World contributions (skip own) — use first positioned object
+    for (const [contribAgentId, contrib] of this.worldContributions.entries()) {
+      if (contribAgentId === agentId) continue;
+      const pos = this.getFirstContribPosition(contrib);
+      if (pos) {
+        pois.push({
+          label: `world build by ${contrib.botName}`,
+          x: pos.x,
+          z: pos.z,
+          type: "world",
+        });
+      }
+    }
+
+    // Active sessions with positions
+    for (const session of this.creativeSessions.values()) {
+      if (session.position) {
+        pois.push({
+          label: `${session.type} session: ${session.title || "untitled"}`,
+          x: session.position.x,
+          z: session.position.z,
+          type: "session",
+        });
+      }
+    }
+
+    // Limit to 20 nearest POIs to keep payload small
+    return pois.slice(0, 20);
+  }
+
+  private getFirstContribPosition(contrib: WorldContribution): { x: number; z: number } | null {
+    const o = contrib.output;
+    if (Array.isArray(o.elements) && o.elements.length > 0) {
+      const el = o.elements[0] as Record<string, unknown>;
+      const pos = el.pos as number[] | undefined;
+      if (pos) return { x: pos[0] ?? 0, z: pos[2] ?? 0 };
+    }
+    if (Array.isArray(o.voxels) && o.voxels.length > 0) {
+      const v = o.voxels[0] as Record<string, unknown>;
+      return { x: (v.x as number) ?? 0, z: (v.z as number) ?? 0 };
+    }
+    if (Array.isArray(o.catalog_items) && o.catalog_items.length > 0) {
+      const c = o.catalog_items[0] as Record<string, unknown>;
+      const pos = c.pos as number[] | undefined;
+      if (pos) return { x: pos[0] ?? 0, z: pos[2] ?? 0 };
+    }
+    if (Array.isArray(o.generated_items) && o.generated_items.length > 0) {
+      const g = o.generated_items[0] as Record<string, unknown>;
+      const pos = g.pos as number[] | undefined;
+      if (pos) return { x: pos[0] ?? 0, z: pos[2] ?? 0 };
+    }
+    return null;
   }
 
   submitWayfindingAction(agent: Agent, action: WayfindingAction): WayfindingActionResult {

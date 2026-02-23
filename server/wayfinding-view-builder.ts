@@ -6,6 +6,13 @@ import type {
   WayfindingEvent,
 } from "./wayfinding-runtime-types";
 
+export interface PointOfInterestSource {
+  label: string;
+  x: number;
+  z: number;
+  type: "world" | "music" | "session" | "parcel";
+}
+
 interface BuildPositionViewInput {
   runtime: AgentPositionState;
   allRuntimeStates: Iterable<AgentPositionState>;
@@ -13,6 +20,7 @@ interface BuildPositionViewInput {
   allowedPresenceStates: WayfindingPresenceState[];
   parcelId: string | null;
   parcelBounds: { minX: number; maxX: number; minZ: number; maxZ: number } | null;
+  pointsOfInterest?: PointOfInterestSource[];
 }
 
 function computeMovementProgress(runtime: AgentPositionState): number {
@@ -71,5 +79,6 @@ export function buildPositionView(
       type: event.type,
       actorBotName: event.botName,
     })),
+    pointsOfInterest: input.pointsOfInterest ?? [],
   };
 }

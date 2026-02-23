@@ -8,7 +8,7 @@ import {
   type WayfindingPresenceState,
   type WayfindingSystemState,
 } from "./wayfinding";
-import { buildPositionView } from "./wayfinding-view-builder";
+import { buildPositionView, type PointOfInterestSource } from "./wayfinding-view-builder";
 import type {
   AgentPositionState,
   AgentPositionView,
@@ -81,7 +81,8 @@ export class WayfindingReducer {
 
   getState(
     agent: WayfindingAgent,
-    parcelInfo?: { parcelId: string | null; parcelBounds: { minX: number; maxX: number; minZ: number; maxZ: number } | null }
+    parcelInfo?: { parcelId: string | null; parcelBounds: { minX: number; maxX: number; minZ: number; maxZ: number } | null },
+    pointsOfInterest?: PointOfInterestSource[]
   ): AgentPositionView {
     const runtime = this.ensurePositionState(agent);
     this.enforcePresenceGuardrails(runtime);
@@ -92,6 +93,7 @@ export class WayfindingReducer {
       allowedPresenceStates: this.resolveAllowedPresenceStates(runtime),
       parcelId: parcelInfo?.parcelId ?? null,
       parcelBounds: parcelInfo?.parcelBounds ?? null,
+      pointsOfInterest,
     });
   }
 

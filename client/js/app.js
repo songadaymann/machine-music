@@ -147,14 +147,7 @@ async function main() {
     const initialWorld = api.getWorldSnapshot();
     worldRenderer.updateGlobal(initialWorld);
     // Spawn avatars for agents with world contributions
-    if (initialWorld?.contributions?.length) {
-        for (const c of initialWorld.contributions) {
-            if (c.botName) {
-                const pos = getFirstWorldPosition(c);
-                if (pos) avatars.assignToPlacement(c.botName, pos);
-            }
-        }
-    }
+    ensureAvatarsForWorldContributions(initialWorld?.contributions);
 
     // 7a. Fetch and render parcel boundaries
     try {
@@ -237,20 +230,17 @@ async function main() {
 
             case 'world_snapshot':
                 worldRenderer.updateGlobal(data);
-                // Sparkle particles + avatar spawning for world contributors
+                // Sparkle particles for world contributors
                 if (data?.contributions?.length) {
                     for (const c of data.contributions) {
                         if (c.elements?.length) {
                             const el = c.elements[0];
                             if (el.pos) particles.sparkle({ x: el.pos[0] || 0, y: (el.pos[1] || 0) + 1, z: el.pos[2] || 0 });
                         }
-                        // Ensure avatar for the contributing agent
-                        if (c.botName) {
-                            const pos = getFirstWorldPosition(c);
-                            if (pos) avatars.assignToPlacement(c.botName, pos);
-                        }
                     }
                 }
+                // Ensure avatars for all world contributors (deduped)
+                ensureAvatarsForWorldContributions(data?.contributions);
                 break;
 
             case 'avatar_updated':
@@ -636,7 +626,31 @@ function getFirstWorldPosition(contribution) {
         const c = contribution.catalog_items[0];
         if (c.pos) return { x: c.pos[0] || 0, z: c.pos[2] || 0 };
     }
+    // Try generated items
+    if (contribution.generated_items?.length) {
+        const g = contribution.generated_items[0];
+        if (g.pos) return { x: g.pos[0] || 0, z: g.pos[2] || 0 };
+    }
     return null;
+}
+
+// --- Ensure avatars for agents with world contributions ---
+
+const worldAvatarsSpawned = new Set();
+
+function ensureAvatarsForWorldContributions(contributions) {
+    if (!Array.isArray(contributions)) return;
+    for (const c of contributions) {
+        if (!c.botName || worldAvatarsSpawned.has(c.botName)) continue;
+        worldAvatarsSpawned.add(c.botName);
+        const pos = getFirstWorldPosition(c);
+        if (pos) {
+            avatars.assignToPlacement(c.botName, pos);
+        } else {
+            // Agent only changed environment (sky/fog/lighting) — still show their avatar
+            avatars.ensureAvatar(c.botName);
+        }
+    }
 }
 
 // --- Ensure avatars for agents with music placements ---
