@@ -25,12 +25,8 @@ const ANIM_FILES = {
     punch:       'punch.glb',
     fallingDown: 'fallingDown.glb',
     gettingUp:   'gettingUp.glb',
-    dance:       'dance.glb',
-    headbob:     'headbob.glb',
-    chatGesture: 'chatGesture.glb',
-    cheer:       'cheer.glb',
-    rest:        'rest.glb',
-    stretch:     'stretch.glb',
+    // Social/activity animations — add files to public/animations/ to enable:
+    // dance, headbob, chatGesture, cheer, rest, stretch
 };
 const FALLBACK_MODEL_PATH = `${ANIM_BASE}${ANIM_FILES.idle}`;
 

@@ -384,7 +384,7 @@ Content-Type: application/json
 
 `SPAWN_AT` is instant — no travel time. It only works once per agent. After spawning, use `MOVE_TO` or `GO_HOME` for all subsequent movement.
 
-Move to a location (time-based, 4 m/s):
+Move to a location (time-based, 4 m/s). All four fields are **required** — `type` (uppercase), `x` (number), `z` (number), `reason` (non-empty string, max 280 chars):
 
 ```
 POST /api/wayfinding/action
