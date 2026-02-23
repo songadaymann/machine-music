@@ -8,6 +8,8 @@ import * as avatars from './avatars.js';
 import * as ui from './ui.js';
 import * as debug from './debug.js';
 import * as wallet from './wallet.js';
+import * as interaction from './interaction.js';
+import * as particles from './particles.js';
 import * as visualRenderer from './visual-renderer.js';
 import * as worldRenderer from './world-renderer.js';
 import * as catalogRenderer from './catalog-renderer.js';
@@ -47,8 +49,8 @@ function setBotAvatarSpec(botName, glbUrl, avatarHeight) {
 
 function handleWayfindingMove(data) {
     const { botName, toX, toZ } = data;
-    const avatar = avatars.getAvatar(botName);
-    if (!avatar) return;
+    if (!botName) return;
+    const avatar = avatars.ensureAvatar(botName);
     if (typeof toX === 'number' && typeof toZ === 'number') {
         avatar.targetPosition = { x: toX, y: 0, z: toZ };
         avatars.switchAction(avatar, 'walk');
@@ -57,8 +59,8 @@ function handleWayfindingMove(data) {
 
 function handleWayfindingArrived(data) {
     const { botName, toX, toZ } = data;
-    const avatar = avatars.getAvatar(botName);
-    if (!avatar) return;
+    if (!botName) return;
+    const avatar = avatars.ensureAvatar(botName);
     if (typeof toX === 'number' && typeof toZ === 'number' && avatar.group) {
         avatar.group.position.set(toX, avatars.getAvatarYOffset?.() ?? 0, toZ);
         avatar.targetPosition = null;
@@ -68,8 +70,8 @@ function handleWayfindingArrived(data) {
 
 function handleWayfindingPresence(data) {
     const { botName, presenceState } = data;
-    const avatar = avatars.getAvatar(botName);
-    if (!avatar) return;
+    if (!botName) return;
+    const avatar = avatars.ensureAvatar(botName);
 
     const animMap = {
         dance: 'dance',
@@ -90,6 +92,13 @@ async function main() {
     // 1. Init Three.js scene
     const canvas = document.getElementById('void-canvas');
     scene.init(canvas);
+
+    // Init unified interaction system (raycasting + hover/click)
+    interaction.init(scene.getCamera(), canvas);
+
+    // Init particle system (music visualization + ambient effects)
+    particles.init(scene.getScene(), scene.getCamera());
+    scene.onUpdate((delta, elapsed) => particles.update(delta, elapsed));
 
     visualRenderer.init(scene.getScene(), canvas);
     worldRenderer.init(scene.getScene());
@@ -135,12 +144,29 @@ async function main() {
     }
     processJamSnapshot(latestJamSnapshot);
     processSessionSnapshot(latestSessionSnapshot);
-    worldRenderer.updateGlobal(api.getWorldSnapshot());
+    const initialWorld = api.getWorldSnapshot();
+    worldRenderer.updateGlobal(initialWorld);
+    // Spawn avatars for agents with world contributions
+    if (initialWorld?.contributions?.length) {
+        for (const c of initialWorld.contributions) {
+            if (c.botName) {
+                const pos = getFirstWorldPosition(c);
+                if (pos) avatars.assignToPlacement(c.botName, pos);
+            }
+        }
+    }
 
-    // 7a. Hydrate spatial music placements
+    // 7a. Fetch and render parcel boundaries
+    try {
+        const parcelsRes = await fetch(`${window.location.origin}/api/parcels`);
+        if (parcelsRes.ok) scene.setParcelOverlay(await parcelsRes.json());
+    } catch { /* non-fatal */ }
+
+    // 7b. Hydrate spatial music placements + spawn avatars for placement owners
     const placementSnap = api.getMusicPlacements();
     instruments.updatePlacements(placementSnap);
     music.setMusicPlacements(placementSnap?.placements || []);
+    ensureAvatarsForPlacements(placementSnap?.placements || []);
 
     // 7b. Hydrate recent bot activity so thoughts/code context isn't empty on load
     const recentActivity = await api.fetchActivity();
@@ -205,10 +231,26 @@ async function main() {
             case 'music_placement_snapshot':
                 instruments.updatePlacements(data);
                 music.setMusicPlacements(data?.placements || []);
+                // Ensure avatars for agents with placements (walk them to their instrument)
+                ensureAvatarsForPlacements(data?.placements || []);
                 break;
 
             case 'world_snapshot':
                 worldRenderer.updateGlobal(data);
+                // Sparkle particles + avatar spawning for world contributors
+                if (data?.contributions?.length) {
+                    for (const c of data.contributions) {
+                        if (c.elements?.length) {
+                            const el = c.elements[0];
+                            if (el.pos) particles.sparkle({ x: el.pos[0] || 0, y: (el.pos[1] || 0) + 1, z: el.pos[2] || 0 });
+                        }
+                        // Ensure avatar for the contributing agent
+                        if (c.botName) {
+                            const pos = getFirstWorldPosition(c);
+                            if (pos) avatars.assignToPlacement(c.botName, pos);
+                        }
+                    }
+                }
                 break;
 
             case 'avatar_updated':
@@ -576,6 +618,39 @@ function handleSessionEvent(data) {
     }
 }
 
+// --- Helpers for spawning avatars from placements/contributions ---
+
+function getFirstWorldPosition(contribution) {
+    // Try elements first
+    if (contribution.elements?.length) {
+        const el = contribution.elements[0];
+        if (el.pos) return { x: el.pos[0] || 0, z: el.pos[2] || 0 };
+    }
+    // Try voxels
+    if (contribution.voxels?.length) {
+        const v = contribution.voxels[0];
+        return { x: v.x || 0, z: v.z || 0 };
+    }
+    // Try catalog items
+    if (contribution.catalog_items?.length) {
+        const c = contribution.catalog_items[0];
+        if (c.pos) return { x: c.pos[0] || 0, z: c.pos[2] || 0 };
+    }
+    return null;
+}
+
+// --- Ensure avatars for agents with music placements ---
+
+const placementAvatarsSpawned = new Set();
+
+function ensureAvatarsForPlacements(placements) {
+    for (const p of placements) {
+        if (!p.botName || placementAvatarsSpawned.has(p.botName)) continue;
+        placementAvatarsSpawned.add(p.botName);
+        avatars.assignToPlacement(p.botName, p.position);
+    }
+}
+
 // --- Process full composition ---
 
 function processComposition(comp) {
@@ -865,7 +940,8 @@ function syncMusicWithState(comp, jamSnap, sessionSnap) {
 }
 
 function installTestingHooks() {
-    window.render_game_to_text = () => {
+    window.DEBUG = window.DEBUG || {};
+    window.DEBUG.render_game_to_text = () => {
         const comp = api.getComposition();
         const cam = scene.getCamera();
         return JSON.stringify({
@@ -926,7 +1002,8 @@ function installTestingHooks() {
 }
 
 function installSessionActionHandler() {
-    window._sessionActionHandler = (sessionId, sessionType) => {
+    window.DEBUG = window.DEBUG || {};
+    window.DEBUG.sessionActionHandler = (sessionId, sessionType) => {
         const renderer = sessionRenderers[sessionType];
         if (!renderer) return;
         renderer.toggle(sessionId);

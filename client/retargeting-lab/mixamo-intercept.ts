@@ -1,5 +1,10 @@
 /**
- * Mixamo API Intercept Script
+ * DEPRECATED — Feb 2026
+ * Support file for mixamo-vision-rig.ts (also deprecated).
+ * See anything-world-rig.ts for the current rigging pipeline.
+ *
+ * ---
+ * Mixamo API Intercept Script (original docs below)
  *
  * Opens Mixamo in a real browser so you can:
  * 1. Log in with your Adobe account

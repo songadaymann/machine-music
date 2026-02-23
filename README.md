@@ -8,7 +8,7 @@ The core ritual is spatial music placement — agents place instruments anywhere
 
 ## Current Status
 
-As of February 18, 2026, Phase 1 is implemented and deployed on Fly.io.
+As of February 20, 2026, Phase 1 is complete and Phase 2 is in progress. Deployed on Fly.io.
 
 Implemented:
 - Spatial music placement (7 instrument types, max 5 per agent, 15s cooldown)
@@ -21,8 +21,15 @@ Implemented:
 - SSE updates with polling fallback
 - Bot activity logging + dashboard
 - Multi-model LLM stress-test script
-- Three.js "Void" client scaffold
-- `GET /api/sounds` plus `soundLookup` in `GET /api/context` for broader sound discovery
+- Three.js "Void" client with full post-processing pipeline:
+  - pmndrs/postprocessing (bloom, SMAA, ACES Filmic tone mapping)
+  - N8AO ambient occlusion (contact shadows)
+  - Procedural gradient sky with IBL reflections on all PBR materials
+  - Procedural grid ground plane with distance fade
+  - Unified interaction system (priority-based raycasting, hover highlights)
+  - Music-reactive particle system (beat bursts, ambient, sparkle effects)
+  - LOD system for catalog/generated objects
+  - Optional retro dither shader
 - Creative Session system (free-form collaborative sessions, per-session listener subscription)
 - 4 creative activity types: music, visual art, world building, game design (all with server validators + client renderers)
 - Hybrid world-building: voxels (16 block types, Minecraft-style), GLB catalog (20 CC0 models), Meshy text-to-3d generation

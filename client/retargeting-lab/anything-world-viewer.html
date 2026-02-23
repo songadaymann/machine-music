@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Anything World Rig Viewer</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #1a1a2e; color: #eee; font-family: monospace; overflow: hidden; }
+  canvas { display: block; }
+  #hud {
+    position: fixed; top: 12px; left: 12px; z-index: 10;
+    background: rgba(0,0,0,0.75); padding: 14px 18px; border-radius: 8px;
+    font-size: 13px; line-height: 1.7; min-width: 220px;
+  }
+  #hud h2 { font-size: 14px; margin-bottom: 8px; color: #7dd3fc; }
+  .key { display: inline-block; background: #334; border: 1px solid #556; border-radius: 3px;
+    padding: 1px 6px; font-size: 12px; min-width: 20px; text-align: center; color: #aef; }
+  .anim-row { margin: 3px 0; }
+  .anim-row.active .key { background: #2a6e5a; border-color: #3a8e6a; color: #fff; }
+  .anim-row.active { color: #5eead4; font-weight: bold; }
+  #info { margin-top: 10px; font-size: 11px; color: #888; }
+  #status { margin-top: 6px; font-size: 11px; color: #fbbf24; }
+</style>
+</head>
+<body>
+
+<div id="hud">
+  <h2>Anything World Rig Viewer</h2>
+  <div id="anim-list"></div>
+  <div id="info">
+    Orbit: drag &middot; Zoom: scroll &middot; Pan: right-drag
+  </div>
+  <div id="status">Loading model...</div>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+  }
+}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+// ---------------------------------------------------------------------------
+// Config
+// ---------------------------------------------------------------------------
+const ANIM_BASE = '/generated-avatars/retargeting-lab/anything-world/animations/';
+const ANIMS = [
+  { name: 'idle',       key: '1', file: 'idle.glb' },
+  { name: 'walk',       key: '2', file: 'walk.glb' },
+  { name: 'run',        key: '3', file: 'run.glb' },
+  { name: 'jump',       key: '4', file: 'jump.glb' },
+  { name: 'jump_start', key: '5', file: 'jump_start.glb' },
+  { name: 'jump_fall',  key: '6', file: 'jump_fall.glb' },
+  { name: 'jump_end',   key: '7', file: 'jump_end.glb' },
+];
+
+// ---------------------------------------------------------------------------
+// Scene setup
+// ---------------------------------------------------------------------------
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(window.devicePixelRatio);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.2;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x1a1a2e);
+
+// Ground grid
+const grid = new THREE.GridHelper(10, 20, 0x334155, 0x1e293b);
+scene.add(grid);
+
+// Lighting
+const ambient = new THREE.AmbientLight(0xffffff, 0.6);
+scene.add(ambient);
+const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
+dirLight.position.set(3, 5, 4);
+dirLight.castShadow = true;
+scene.add(dirLight);
+const fillLight = new THREE.DirectionalLight(0x8888ff, 0.4);
+fillLight.position.set(-3, 2, -2);
+scene.add(fillLight);
+
+const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
+camera.position.set(0, 1.5, 4);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 1, 0);
+controls.enableDamping = true;
+controls.update();
+
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+// ---------------------------------------------------------------------------
+// Loading
+// ---------------------------------------------------------------------------
+const loader = new GLTFLoader();
+const statusEl = document.getElementById('status');
+const animListEl = document.getElementById('anim-list');
+
+let mixer = null;
+let currentAction = null;
+let actions = {};
+let baseModel = null;
+
+function setStatus(msg) { statusEl.textContent = msg; }
+
+// Build the HUD animation list
+ANIMS.forEach(a => {
+  const row = document.createElement('div');
+  row.className = 'anim-row';
+  row.id = `row-${a.name}`;
+  row.innerHTML = `<span class="key">${a.key}</span> ${a.name}`;
+  animListEl.appendChild(row);
+});
+
+function highlightActive(name) {
+  document.querySelectorAll('.anim-row').forEach(r => r.classList.remove('active'));
+  const row = document.getElementById(`row-${name}`);
+  if (row) row.classList.add('active');
+}
+
+// Load the base model (idle) — use its mesh + skeleton
+async function loadBaseModel() {
+  setStatus('Loading idle model...');
+  const gltf = await loader.loadAsync(ANIM_BASE + 'idle.glb');
+  baseModel = gltf.scene;
+
+  // Center and scale
+  const box = new THREE.Box3().setFromObject(baseModel);
+  const size = box.getSize(new THREE.Vector3());
+  const center = box.getCenter(new THREE.Vector3());
+
+  // Scale so height ~2 units
+  const scale = 2.0 / size.y;
+  baseModel.scale.setScalar(scale);
+
+  // Recompute after scaling
+  box.setFromObject(baseModel);
+  box.getCenter(center);
+  baseModel.position.y -= box.min.y; // feet on ground
+  baseModel.position.x -= center.x;
+  baseModel.position.z -= center.z;
+
+  scene.add(baseModel);
+
+  // Create mixer
+  mixer = new THREE.AnimationMixer(baseModel);
+
+  // Store idle animation
+  if (gltf.animations.length > 0) {
+    const clip = gltf.animations[0];
+    clip.name = 'idle';
+    actions['idle'] = mixer.clipAction(clip);
+  }
+
+  setStatus(`Model loaded. Skeleton bones: ${countBones(baseModel)}`);
+  return gltf;
+}
+
+function countBones(obj) {
+  let n = 0;
+  obj.traverse(c => { if (c.isBone) n++; });
+  return n;
+}
+
+// Load additional animation GLBs — extract just the clip
+async function loadAnimation(animDef) {
+  if (actions[animDef.name]) return; // already loaded
+  try {
+    const gltf = await loader.loadAsync(ANIM_BASE + animDef.file);
+    if (gltf.animations.length > 0) {
+      const clip = gltf.animations[0];
+      clip.name = animDef.name;
+      actions[animDef.name] = mixer.clipAction(clip);
+    }
+  } catch (err) {
+    console.warn(`Failed to load ${animDef.name}:`, err);
+  }
+}
+
+// Play an animation with crossfade
+function playAnimation(name, fadeDuration = 0.3) {
+  const action = actions[name];
+  if (!action || action === currentAction) return;
+
+  if (currentAction) {
+    currentAction.fadeOut(fadeDuration);
+  }
+
+  action.reset();
+  action.fadeIn(fadeDuration);
+  action.play();
+
+  // One-shot animations (jumps) — blend back to idle when done
+  if (name.startsWith('jump')) {
+    action.setLoop(THREE.LoopOnce);
+    action.clampWhenFinished = true;
+    mixer.addEventListener('finished', function onFinished(e) {
+      if (e.action === action) {
+        mixer.removeEventListener('finished', onFinished);
+        playAnimation('idle');
+      }
+    });
+  } else {
+    action.setLoop(THREE.LoopRepeat);
+  }
+
+  currentAction = action;
+  highlightActive(name);
+  setStatus(`Playing: ${name}`);
+}
+
+// ---------------------------------------------------------------------------
+// Keyboard controls
+// ---------------------------------------------------------------------------
+window.addEventListener('keydown', (e) => {
+  const anim = ANIMS.find(a => a.key === e.key);
+  if (anim && actions[anim.name]) {
+    playAnimation(anim.name);
+  }
+});
+
+// Also allow clicking the rows
+animListEl.addEventListener('click', (e) => {
+  const row = e.target.closest('.anim-row');
+  if (!row) return;
+  const name = row.id.replace('row-', '');
+  if (actions[name]) playAnimation(name);
+});
+
+// ---------------------------------------------------------------------------
+// Init
+// ---------------------------------------------------------------------------
+async function init() {
+  await loadBaseModel();
+
+  // Load all other animations in parallel
+  setStatus('Loading animations...');
+  await Promise.all(ANIMS.filter(a => a.name !== 'idle').map(a => loadAnimation(a)));
+
+  const loadedNames = Object.keys(actions);
+  setStatus(`Ready — ${loadedNames.length} animations loaded. Press 1-7 or click.`);
+
+  // Start with idle
+  playAnimation('idle', 0);
+}
+
+// ---------------------------------------------------------------------------
+// Render loop
+// ---------------------------------------------------------------------------
+const clock = new THREE.Clock();
+function animate() {
+  requestAnimationFrame(animate);
+  const dt = clock.getDelta();
+  if (mixer) mixer.update(dt);
+  controls.update();
+  renderer.render(scene, camera);
+}
+animate();
+
+init().catch(err => {
+  console.error(err);
+  setStatus('Error: ' + err.message);
+});
+</script>
+</body>
+</html>

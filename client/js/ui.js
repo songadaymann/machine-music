@@ -1,10 +1,9 @@
 // ui.js -- HUD overlay: agent hover modal, status bar, activity log
 
-import * as THREE from 'three';
 import { getComposition, getSessionSnapshot } from './api.js';
 import * as music from './music.js';
-import { getCamera } from './scene.js';
 import { getAllAvatars } from './avatars.js';
+import * as interaction from './interaction.js';
 
 // --- State ---
 const logMessages = [];
@@ -14,8 +13,6 @@ const MAX_CHAT = 100;
 let activeTab = 'chat';
 const latestThoughtByBot = new Map(); // botName -> recent reasoning
 let hoveredBotName = null;
-const raycaster = new THREE.Raycaster();
-const pointer = new THREE.Vector2();
 
 // --- Public API ---
 
@@ -40,63 +37,39 @@ export function setLatestThought(botName, text) {
 // --- Agent hover modal ---
 
 export function initAgentHover() {
-    const canvas = document.getElementById('void-canvas');
-    if (!canvas) return;
+    // Build a mesh→botName lookup that refreshes each time getMeshes is called
+    let meshToBotName = new Map();
 
-    canvas.addEventListener('mousemove', onCanvasMouseMove);
-    canvas.addEventListener('mouseleave', () => {
-        hoveredBotName = null;
-        hideAgentModal();
-    });
-}
-
-function onCanvasMouseMove(event) {
-    const canvas = event.target;
-    const rect = canvas.getBoundingClientRect();
-    pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-    pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-
-    const camera = getCamera();
-    if (!camera) return;
-
-    raycaster.setFromCamera(pointer, camera);
-
-    // Collect all avatar meshes for raycasting
-    const avatars = getAllAvatars();
-    const meshes = [];
-    const meshToBotName = new Map();
-
-    for (const [botName, avatar] of avatars) {
-        avatar.group.traverse((child) => {
-            if (child.isMesh) {
-                meshes.push(child);
-                meshToBotName.set(child, botName);
+    interaction.registerLayer('avatars', {
+        priority: 50,
+        getMeshes() {
+            const avatars = getAllAvatars();
+            const meshes = [];
+            meshToBotName = new Map();
+            for (const [botName, avatar] of avatars) {
+                avatar.group.traverse((child) => {
+                    if (child.isMesh) {
+                        meshes.push(child);
+                        meshToBotName.set(child, botName);
+                    }
+                });
             }
-        });
-    }
-
-    if (meshes.length === 0) {
-        if (hoveredBotName) {
+            return meshes;
+        },
+        mapHit(obj) {
+            return { botName: meshToBotName.get(obj) || null };
+        },
+        onHover(hit) {
+            if (hit.botName && hit.botName !== hoveredBotName) {
+                hoveredBotName = hit.botName;
+                renderAgentModal(hit.botName);
+            }
+        },
+        onLeave() {
             hoveredBotName = null;
             hideAgentModal();
-        }
-        return;
-    }
-
-    const intersects = raycaster.intersectObjects(meshes, false);
-    if (intersects.length > 0) {
-        const hitMesh = intersects[0].object;
-        const botName = meshToBotName.get(hitMesh);
-        if (botName && botName !== hoveredBotName) {
-            hoveredBotName = botName;
-            renderAgentModal(botName);
-        }
-    } else {
-        if (hoveredBotName) {
-            hoveredBotName = null;
-            hideAgentModal();
-        }
-    }
+        },
+    });
 }
 
 function renderAgentModal(botName) {

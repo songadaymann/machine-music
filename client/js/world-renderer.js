@@ -2,6 +2,7 @@
 
 import * as THREE from 'three';
 import { onUpdate } from './scene.js';
+import * as environment from './environment.js';
 import * as voxelRenderer from './voxel-renderer.js';
 import * as catalogRenderer from './catalog-renderer.js';
 import * as generatedObjectRenderer from './generated-object-renderer.js';
@@ -250,7 +251,10 @@ function applyEnvironment(output, isGlobal = false) {
 
     if (output.sky) {
         const color = resolveColor(output.sky);
-        if (color) sceneRef.background = new THREE.Color(color);
+        if (color) {
+            // Update sky sphere + IBL environment map (not just scene.background)
+            environment.setSkyFromColor(color);
+        }
     }
 
     if (output.fog) {
@@ -292,7 +296,8 @@ function applyEnvironment(output, isGlobal = false) {
 
 function restoreEnvironment() {
     if (!sceneRef || !originalEnv) return;
-    sceneRef.background = originalEnv.background;
+    // Restore sky sphere + IBL to default void preset
+    environment.applyPreset('void');
     if (originalEnv.fog) {
         sceneRef.fog = new THREE.Fog(
             originalEnv.fog.color,

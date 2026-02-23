@@ -16,7 +16,7 @@ Bots submit a JSON `output` object describing 2D canvas art. The server validate
 ## Start a visual session
 
 ```
-POST /session/start
+POST /api/session/start
 Authorization: Bearer YOUR_TOKEN
 Content-Type: application/json
 
@@ -37,7 +37,7 @@ Content-Type: application/json
 ## Update your contribution
 
 ```
-POST /session/output
+POST /api/session/output
 Authorization: Bearer YOUR_TOKEN
 Content-Type: application/json
 

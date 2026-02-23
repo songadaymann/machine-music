@@ -146,30 +146,31 @@ async function pollUntilDone(modelId: string): Promise<Record<string, unknown>> 
 // Step 4: Download rigged GLB + animations
 // ---------------------------------------------------------------------------
 async function downloadResults(data: Record<string, unknown>): Promise<void> {
-  const model = data.model as Record<string, unknown> | undefined;
-  if (!model) {
-    log("download", "No 'model' field in response");
+  // API returns an array — unwrap first element
+  const entry = Array.isArray(data) ? data[0] : data;
+  if (!entry) {
+    log("download", "Empty response array");
     return;
   }
 
-  const rig = model.rig as Record<string, unknown> | undefined;
+  const rig = entry.rig as Record<string, unknown> | undefined;
   if (!rig) {
-    log("download", "No 'rig' field in model — rigging may have failed");
+    log("download", "No 'rig' field in response — rigging may have failed");
     return;
   }
 
-  // Download rigged GLB
-  const rigGlbUrl = rig.GLB as string | undefined;
-  if (rigGlbUrl) {
-    log("download", `Downloading rigged GLB...`);
-    const resp = await fetch(rigGlbUrl);
+  // Download rigged FBX (API provides FBX, not GLB for the rig itself)
+  const rigFbxUrl = rig.FBX as string | undefined;
+  if (rigFbxUrl) {
+    log("download", `Downloading rigged FBX...`);
+    const resp = await fetch(rigFbxUrl);
     if (resp.ok) {
       const buf = new Uint8Array(await resp.arrayBuffer());
-      const outPath = join(OUTPUT_DIR, "rigged.glb");
+      const outPath = join(OUTPUT_DIR, "rigged.fbx");
       writeFileSync(outPath, buf);
-      log("download", `Rigged GLB saved: ${outPath} (${(buf.length / 1024).toFixed(0)} KB)`);
+      log("download", `Rigged FBX saved: ${outPath} (${(buf.length / 1024).toFixed(0)} KB)`);
     } else {
-      log("download", `Failed to download rigged GLB: ${resp.status}`);
+      log("download", `Failed to download rigged FBX: ${resp.status}`);
     }
   }
 
@@ -184,18 +185,33 @@ async function downloadResults(data: Record<string, unknown>): Promise<void> {
 
     for (const [name, formats] of Object.entries(animations)) {
       const glbUrl = formats.GLB || formats.glb;
-      if (!glbUrl) continue;
-
-      try {
-        const resp = await fetch(glbUrl);
-        if (resp.ok) {
-          const buf = new Uint8Array(await resp.arrayBuffer());
-          const outPath = join(animDir, `${name}.glb`);
-          writeFileSync(outPath, buf);
-          log("download", `  ${name}.glb (${(buf.length / 1024).toFixed(0)} KB)`);
+      if (glbUrl) {
+        try {
+          const resp = await fetch(glbUrl);
+          if (resp.ok) {
+            const buf = new Uint8Array(await resp.arrayBuffer());
+            const outPath = join(animDir, `${name}.glb`);
+            writeFileSync(outPath, buf);
+            log("download", `  ${name}.glb (${(buf.length / 1024).toFixed(0)} KB)`);
+          }
+        } catch (err) {
+          log("download", `  ${name}.glb: download failed — ${err}`);
         }
-      } catch (err) {
-        log("download", `  ${name}: download failed — ${err}`);
+      }
+
+      const fbxUrl = formats.FBX || formats.fbx;
+      if (fbxUrl) {
+        try {
+          const resp = await fetch(fbxUrl);
+          if (resp.ok) {
+            const buf = new Uint8Array(await resp.arrayBuffer());
+            const outPath = join(animDir, `${name}.fbx`);
+            writeFileSync(outPath, buf);
+            log("download", `  ${name}.fbx (${(buf.length / 1024).toFixed(0)} KB)`);
+          }
+        } catch (err) {
+          log("download", `  ${name}.fbx: download failed — ${err}`);
+        }
       }
     }
   } else {

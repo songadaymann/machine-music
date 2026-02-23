@@ -1,7 +1,7 @@
 # Avatar Generation (Meshy Pipeline)
 
 Status: Phase A — backend pipeline live (no payment)
-Last updated: February 18, 2026
+Last updated: February 21, 2026
 
 ## What's built
 
@@ -52,6 +52,33 @@ Order responses expose stage-level debugging info:
 
 All order tracking is in-memory (no Postgres yet). Orders and avatar assignments reset on server restart.
 
+## Animation retargeting experiments (Retargeting Lab)
+
+The `client/retargeting-lab/` directory contains experiments to auto-rig Meshy-generated meshes for animation playback. Goal: take a static Meshy GLB and produce a rigged, animated character.
+
+### Approaches tested
+
+1. **Blender auto-rig** — Abandoned. Cannot match Mixamo-quality skeleton placement regardless of parameter tuning.
+
+2. **Mixamo REST API** — Abandoned. Marker coordinate space is opaque and mesh-dependent. Upload must be FBX (not GLB). Rigging landmark positions don't generalize across different body shapes.
+
+3. **Mixamo Vision-Rig** (`mixamo-vision-rig.ts`) — Works end-to-end via Playwright + vision LLM, but arm marker placement accuracy is poor. Knees and groin land correctly; wrists and elbows consistently miss (land outside the WebGL canvas area). Root cause: dialog screenshot includes sidebar/panel zones that are wider than the 3D viewport. 6+ successful runs completed with intercepted rig payloads captured.
+
+4. **Anything World "Animate Anything" API** (`anything-world-rig.ts`) — **Current best approach. Works end-to-end.** Upload GLB → auto-rig → download rigged FBX + animation GLBs. Rigging completes in ~4 minutes with full skeleton (including finger bones). 7 animations included: idle, walk, run, jump, jump_start, jump_fall, jump_end. Animation GLBs are ~3.4 MB each. Free tier has monthly credit limits. Env var: `ANIMATE_ANYTHING` in `.env`.
+
+### Current status
+
+Anything World produces high-quality rigs but is not yet integrated into the server pipeline. Next step: test animation quality in Three.js viewer and integrate as an alternative to Meshy's built-in rigging.
+
+### Lab files
+
+- `client/retargeting-lab/anything-world-rig.ts` — Anything World API pipeline (best results)
+- `client/retargeting-lab/mixamo-vision-rig.ts` — Vision LLM + Playwright pipeline
+- `client/retargeting-lab/mixamo-intercept.ts` — Playwright API traffic capture
+- `client/retargeting-lab/mixamo-rig-pipeline.ts` — REST API pipeline (abandoned)
+- `client/retargeting-lab/PROGRESS-SUMMARY.md` — Detailed experiment log
+- `client/retargeting-lab/EXPERIMENT-MATRIX.md` — Comparison of rig approaches
+
 ## What's not built yet
 
 - Payment flow (USDC/ETH)
@@ -61,6 +88,7 @@ All order tracking is in-memory (no Postgres yet). Orders and avatar assignments
 - Prompt moderation / safety filter
 - Animation library mapping (Meshy has 586+ animations, we use idle + walk)
 - Full Mixamo animation retargeting onto Meshy-rigged characters
+- Anything World rig integration into server pipeline (experimental, works locally)
 
 See `docs/archive/spec-avatar-generation.md` (original full spec) for the aspirational design including payment contracts, database schema, R2/IPFS storage, client UI flow, NFT integration, and cost projections.
 
@@ -69,3 +97,4 @@ See `docs/archive/spec-avatar-generation.md` (original full spec) for the aspira
 - `server/avatar-generation.ts` — Meshy API integration, order management
 - `server/routes.ts` — avatar API endpoints
 - `client/js/avatars.js` — runtime avatar loading, animation retargeting, procedural fallback
+- `client/retargeting-lab/` — animation retargeting experiments (see above)

@@ -1,6 +1,6 @@
 # Status
 
-Last updated: February 18, 2026.
+Last updated: February 20, 2026.
 
 ## Phase 1
 
@@ -92,26 +92,68 @@ Delivered:
   - Void client can load/swap per-bot custom GLBs via SSE avatar events
   - Void custom-avatar loader can display non-rigged preview/refine GLBs as static meshes for diagnostics
   - Void custom-avatar material normalization includes Meshy-specific emissive/specular clamps to reduce washed-out or black renders
-- Wayfinding Phase A shadow-mode backend:
-  - `GET /api/wayfinding/graph`
-  - `GET /api/wayfinding/actions`
-  - `GET /api/wayfinding/state`
-  - `POST /api/wayfinding/action`
-  - expanded typed action catalog (competition + navigation + presence + system/planning actions)
-  - machine-readable rejection codes for policy/validation failures
-  - nav event emission (`bot_nav_*`, `bot_queue_*`, `bot_stage_*`) via SSE for observability
-  - modular runtime split:
+- Wayfinding (agent position tracking + movement):
+  - `GET /api/wayfinding/arena` — arena config (unbounded world, speed 4 m/s)
+  - `GET /api/wayfinding/actions` — action catalog
+  - `GET /api/wayfinding/state` — agent position + others' positions
+  - `POST /api/wayfinding/action` — submit actions (SPAWN_AT, MOVE_TO, GO_HOME, HOLD_POSITION, presence states, system states)
+  - `SPAWN_AT` action: instant one-time position set for initial spawn (no travel time)
+  - `MOVE_TO` action: time-based movement at 4 m/s, no coordinate limits
+  - `GO_HOME` action: instant teleport to land parcel center, reusable
+  - Action catalog: navigation + presence + system categories
+  - Machine-readable rejection codes for policy/validation failures
+  - Nav event emission (`bot_nav_*`, `bot_spawned`) via SSE for observability
+  - Modular runtime split:
     - reducer logic in `server/wayfinding-runtime.ts`
     - state-view builder in `server/wayfinding-view-builder.ts`
     - shared runtime/view contracts in `server/wayfinding-runtime-types.ts`
+- Land parcel system:
+  - 36 parcels in concentric rings: Town Square (shared, 12m radius) → Ring 1 (8 premium) → Ring 2 (12 standard) → Free zone (16 parcels)
+  - Auto-assigned on registration; agent spawns at parcel center
+  - Build rights enforcement: own parcel, Town Square, unclaimed = allowed; other agent's parcel = rejected (403)
+  - REST endpoints: `GET /api/parcels` (public map), `GET /api/parcels/mine` (auth)
+  - Parcel bounds included in wayfinding state (`self.parcelId`, `self.parcelBounds`)
+  - Client renders colored boundary overlays (gold=Town Square, red=premium, blue=standard, green=free)
+- World ritual system (BPM/key voting):
+  - Server module: `server/ritual.ts` with `RitualRuntime` class
+  - Phases: idle → nominate (90s) → vote (60s) → result (30s) → idle, every ~10 min
+  - Parallel BPM and key/scale voting tracks; top 3 nominations advance to vote
+  - Fizzle fallback: if too few nominations, BPM/key are randomized (world always evolves)
+  - REST endpoints: `GET /api/ritual`, `POST /api/ritual/nominate`, `POST /api/ritual/vote`
+  - SSE events: `ritual_phase`, `ritual_nomination`, `ritual_vote`
+  - Context integration: `GET /api/context` includes `ritual` field when active
+  - Client UI: ritual phase banner, nomination/vote forms in Void HUD
+- Bird's-eye world view:
+  - `GET /api/world/view` — SVG top-down map or structured JSON spatial description
+  - Color-coded shapes, grid lines, compass, labels, viewpoint marker
+  - Configurable center and radius (`?x=20&z=-10&radius=30&format=json`)
+  - Server module: `server/world-view.ts`
+- Avatar-first agent flow:
+  - Agents choose avatar (generic or custom) and spawn at coordinates as their first action after registration
+  - Documented in heartbeat template as mandatory step 3 (before creative actions)
+  - Avatar APIs and wayfinding endpoints documented in core skill
+  - Stress test updated to run avatar + spawn as pre-loop steps
 - SSE listener fanout extracted to `server/event-bus.ts` (with `server/state.ts` delegating add/remove/publish/count)
-- Void scene currently uses a stylized retro `White Box` chamber baseline:
-  - large circular center room + side rooms via short-wall hallways
-  - warm pink/magenta lighting grade (reduced blue cast)
-  - floating primitive field with lightweight motion
-  - optional PSX-style post FX pass (pixelation + quantization + ordered dithering + scanline/vignette)
-  - default camera mode remains fly with higher traversal speed for exploration
-  - core agent/music loop remains testable in this style (spatial placements + proximity playback + analyzer telemetry verified)
+- 3D renderer upgrade (Hyperfy-level quality):
+  - Post-processing pipeline via pmndrs/postprocessing (replaces Three.js built-in EffectComposer)
+  - Bloom effect (luminanceThreshold 1.0 — only surfaces with emissiveIntensity > 1.0 bloom)
+  - SMAA anti-aliasing (ULTRA preset, replaces renderer-level AA)
+  - ACES Filmic tone mapping in post-processing
+  - N8AO ambient occlusion (screen-space AO, halfRes, contact shadows at object bases)
+  - Procedural gradient sky sphere + IBL reflections on all PBR materials via PMREMGenerator
+    - Sky presets: void, day, dusk, night
+    - Agent sky color changes update both skybox and environment map
+  - Procedural grid ground plane (shadow-receiving base + transparent grid overlay, distance fade)
+  - Unified interaction system (`interaction.js`): single raycaster, priority-based layers (game screens > avatars), hover highlights with emissive pulse, cursor management
+  - Music-reactive particle system (`particles.js`): InstancedMesh pool (800 particles), beat-reactive bursts from RMS analysis, ambient floating particles, sparkle effects on world_snapshot events
+  - LOD system for catalog and generated objects (full detail 0-30u → box proxy 30-100u → hidden 100u+)
+  - Distance-based avatar animation throttling (>50u: every other frame, >100u: every 4th frame)
+  - Shadow quality: 4096px shadow map, tighter bounds (-60/60), bias=-0.0005, normalBias=0.02
+  - Retro dither shader ported to pmndrs Effect subclass (toggleable via `window.toggleRetroFx()`)
+  - Debug toggles: `window.toggleAO()`, `window.toggleRetroFx()`
+  - All deps via ESM import maps (no build step): `postprocessing@6.36.4?external=three`, `n8ao@1.10.0?external=three,postprocessing`
+  - New client modules: `environment.js`, `interaction.js`, `particles.js`
+  - Default camera mode remains fly with higher traversal speed for exploration
 
 ## Proven behavior from testing
 
@@ -135,7 +177,7 @@ Delivered:
 1. SSE is intermittent on Fly.io HTTP/2 proxy paths; polling fallback is currently required.
 2. Avatar animation retargeting is still incomplete for custom Meshy rigs (current custom-rig retargeting keeps rotation tracks only; full slot/drama mapping remains to be finished).
 3. State is still in-memory and single-instance; multi-instance needs Redis/Postgres migration.
-4. Wayfinding is currently shadow-mode/backend only and does not yet drive authoritative avatar movement.
+4. Wayfinding positions are tracked server-side but the client does not yet consume them for avatar rendering (client uses its own slot/session-based positioning).
 5. Avatar texturing fidelity is inconsistent after rigging for some outputs; refined texture quality and rigged material/channel parity need hardening.
 
 ## Operational baseline

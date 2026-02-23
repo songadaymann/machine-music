@@ -2,6 +2,7 @@
 
 import * as THREE from 'three';
 import { onUpdate } from './scene.js';
+import * as interaction from './interaction.js';
 
 const SCREEN_WIDTH = 800;
 const SCREEN_HEIGHT = 600;
@@ -12,8 +13,6 @@ const REDRAW_INTERVAL = 1 / 20; // 20 FPS for game rendering
 let sceneRef = null;
 let cameraRef = null;
 let canvasEl = null;
-const raycaster = new THREE.Raycaster();
-const pointerNdc = new THREE.Vector2();
 
 // sessionId -> { canvas, ctx, texture, mesh, gameState, template, lastConfigSig }
 const gameScreens = new Map();
@@ -261,9 +260,26 @@ export function init(scene, camera, canvas) {
     sceneRef = scene;
     cameraRef = camera;
     canvasEl = canvas || null;
-    if (canvasEl) {
-        canvasEl.addEventListener('click', onPointerClick);
-    }
+
+    // Register game screens as an interaction layer (higher priority than avatars)
+    interaction.registerLayer('game-screens', {
+        priority: 20,
+        getMeshes() {
+            const meshes = [];
+            for (const [, screen] of gameScreens) {
+                if (screen.mesh?.visible) meshes.push(screen.mesh);
+            }
+            return meshes;
+        },
+        onClick(hit) {
+            const sessionId = hit.object.userData.gameSessionId;
+            const screen = gameScreens.get(sessionId);
+            if (!screen || !screen.template || !screen.gameState) return;
+            if (!hit.uv) return;
+            screen.template.onInput(screen.gameState, hit.uv);
+        },
+    });
+
     onUpdate((delta) => tick(delta));
 }
 
@@ -400,35 +416,6 @@ function tick(delta) {
     }
 }
 
-function onPointerClick(event) {
-    if (!cameraRef || !canvasEl) return;
-
-    const rect = canvasEl.getBoundingClientRect();
-    pointerNdc.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-    pointerNdc.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-
-    raycaster.setFromCamera(pointerNdc, cameraRef);
-
-    // Check intersection with all game screen meshes
-    const meshes = [];
-    for (const [, screen] of gameScreens) {
-        if (screen.mesh?.visible) meshes.push(screen.mesh);
-    }
-
-    const hits = raycaster.intersectObjects(meshes);
-    if (hits.length === 0) return;
-
-    const hit = hits[0];
-    const sessionId = hit.object.userData.gameSessionId;
-    const screen = gameScreens.get(sessionId);
-    if (!screen || !screen.template || !screen.gameState) return;
-
-    // Get UV coordinates at hit point
-    const uv = hit.uv;
-    if (!uv) return;
-
-    screen.template.onInput(screen.gameState, uv);
-}
 
 function resolveColors(input, defaults) {
     if (!Array.isArray(input) || input.length === 0) return defaults;

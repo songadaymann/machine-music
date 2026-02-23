@@ -35,7 +35,9 @@ export const ARENA_RADIUS_M = 50;
 export const MOVEMENT_SPEED_MPS = 4;
 
 export type WayfindingAction =
+  | { type: "SPAWN_AT"; x: number; z: number; reason: string }
   | { type: "MOVE_TO"; x: number; z: number; reason: string }
+  | { type: "GO_HOME"; reason: string }
   | { type: "HOLD_POSITION"; holdSeconds: number; reason: string }
   | {
       type: "SET_PRESENCE_STATE";
@@ -56,10 +58,22 @@ export interface WayfindingActionDescriptor {
 
 const WAYFINDING_ACTION_CATALOG: ReadonlyArray<WayfindingActionDescriptor> = [
   {
+    type: "SPAWN_AT",
+    category: "navigation",
+    description: "Instantly set position. One-time only (first spawn). No travel time.",
+    fields: ["x", "z", "reason"],
+  },
+  {
     type: "MOVE_TO",
     category: "navigation",
     description: "Move to (x, z) coordinates in continuous space. Travel time = distance / 4 m/s.",
     fields: ["x", "z", "reason"],
+  },
+  {
+    type: "GO_HOME",
+    category: "navigation",
+    description: "Instantly teleport to your land parcel center. Can be used any time.",
+    fields: ["reason"],
   },
   {
     type: "HOLD_POSITION",
@@ -178,8 +192,12 @@ export function isWayfindingAction(value: unknown): value is WayfindingAction {
   if (!isBoundedString(value.reason, MAX_REASON_LENGTH)) return false;
 
   switch (value.type) {
+    case "SPAWN_AT":
+      return isFiniteNumber(value.x) && isFiniteNumber(value.z);
     case "MOVE_TO":
       return isFiniteNumber(value.x) && isFiniteNumber(value.z);
+    case "GO_HOME":
+      return true;
     case "HOLD_POSITION":
       return isIntegerLike(value.holdSeconds);
     case "SET_PRESENCE_STATE":
@@ -207,7 +225,7 @@ export function getArenaConfig() {
   return {
     schemaVersion: "2.0" as const,
     mode: "continuous_space" as const,
-    arenaRadiusM: ARENA_RADIUS_M,
+    worldBounded: false,
     speedMps: MOVEMENT_SPEED_MPS,
     origin: { x: 0, z: 0 },
   };

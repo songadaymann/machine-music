@@ -20,6 +20,7 @@ export interface AgentPositionState {
   presenceUntil: string | null;
   holdUntil: string | null;
   updatedAt: string;
+  hasSpawnedExplicitly: boolean;
 
   // Time-based movement
   movementFromX: number | null;
@@ -57,10 +58,13 @@ export interface AgentPositionView {
     presenceState: WayfindingPresenceState;
     systemState: WayfindingSystemState;
     presenceUntil: string | null;
+    hasSpawnedExplicitly: boolean;
     movementToX: number | null;
     movementToZ: number | null;
     movementCompletesAt: string | null;
     movementProgressPct: number;
+    parcelId: string | null;
+    parcelBounds: { minX: number; maxX: number; minZ: number; maxZ: number } | null;
   };
   others: Array<{
     botName: string;
@@ -71,7 +75,7 @@ export interface AgentPositionView {
   }>;
   policy: {
     allowedPresenceStates: WayfindingPresenceState[];
-    arenaRadiusM: number;
+    worldBounded: boolean;
     speedMps: number;
   };
   recentEvents: Array<{
@@ -95,5 +99,6 @@ export type WayfindingActionResult =
 
 export interface WayfindingRuntimeDeps {
   getAgentById(agentId: string): WayfindingAgent | null;
+  getParcelCenter(agentId: string): { x: number; z: number } | null;
   broadcast(event: string, data: unknown): void;
 }

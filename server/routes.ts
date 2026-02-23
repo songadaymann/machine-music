@@ -13,6 +13,7 @@ import { isValidKey, isValidScale, VALID_SCALES, MIN_BPM, MAX_BPM } from "./musi
 import { generateNonce, consumeNonce, buildSignMessage, recoverAddress, createSession, getSessionAddress } from "./wallet-auth";
 import { checkContentSafety } from "./content-safety";
 import { verifyPayment, isPaymentConfigured, MIN_PROMPT_WEI, MIN_STORM_WEI } from "./payment";
+import { renderSVG, renderJSON } from "./world-view";
 
 const api = new Hono();
 
@@ -250,7 +251,8 @@ api.post("/agents", async (c) => {
 
   const agent = state.registerAgent(name);
   state.touchPresence(agent.id, "idle");
-  return c.json({ id: agent.id, name: agent.name, token: agent.token }, 201);
+  const parcel = state.getParcelForAgent(agent.id);
+  return c.json({ id: agent.id, name: agent.name, token: agent.token, parcel }, 201);
 });
 
 // --- Read Composition ---
@@ -692,6 +694,23 @@ api.get("/world", (c) => {
   return c.json(state.getWorldSnapshot());
 });
 
+api.get("/world/view", (c) => {
+  const x = parseFloat(c.req.query("x") || "0") || 0;
+  const z = parseFloat(c.req.query("z") || "0") || 0;
+  const radius = Math.min(Math.max(parseFloat(c.req.query("radius") || "50") || 50, 5), 100);
+  const format = c.req.query("format") || "svg";
+  const snapshot = state.getWorldSnapshot();
+
+  if (format === "json") {
+    return c.json(renderJSON(snapshot, { x, z }, radius));
+  }
+
+  const svg = renderSVG(snapshot, { x, z }, radius);
+  return new Response(svg, {
+    headers: { "Content-Type": "image/svg+xml", "Cache-Control": "no-cache" },
+  });
+});
+
 api.post("/world", async (c) => {
   const agent = getAgentAndTouch(c.req.header("Authorization"), "world");
   if (!agent) {
@@ -714,6 +733,12 @@ api.post("/world", async (c) => {
   const parsed = parseStructuredOutput(body.output, validateWorldOutput);
   if (parsed.ok === false) {
     return c.json({ error: parsed.error, details: parsed.details }, 400);
+  }
+
+  // Check build rights against parcel ownership
+  const rights = state.checkBuildRights(agent.id, parsed.output! as Record<string, unknown>);
+  if (!rights.allowed) {
+    return c.json({ error: "build_rights_violation", details: rights.reason }, 403);
   }
 
   const result = state.writeWorld(agent, parsed.output!);
@@ -976,7 +1001,29 @@ api.get("/wayfinding/graph", (c) => {
 });
 
 api.get("/wayfinding/arena", (c) => {
-  return c.json(getArenaConfig());
+  const config = getArenaConfig();
+  const parcelSnapshot = state.getParcelSnapshot();
+  return c.json({
+    ...config,
+    townSquare: parcelSnapshot.townSquare,
+    parcelCount: parcelSnapshot.parcels.length,
+    assignedParcels: parcelSnapshot.assignedCount,
+  });
+});
+
+// --- Land Parcels ---
+
+api.get("/parcels", (c) => {
+  return c.json(state.getParcelSnapshot());
+});
+
+api.get("/parcels/mine", (c) => {
+  const agent = getAgentFromAuthHeader(c.req.header("Authorization"));
+  if (!agent) {
+    return c.json({ error: "unauthorized" }, 401);
+  }
+  const parcel = state.getParcelForAgent(agent.id);
+  return c.json({ parcel });
 });
 
 api.get("/wayfinding/actions", (c) => {

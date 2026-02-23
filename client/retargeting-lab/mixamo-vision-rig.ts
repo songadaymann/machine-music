@@ -1,5 +1,12 @@
 /**
- * Mixamo Vision-Rig Pipeline
+ * DEPRECATED — Feb 2026
+ * Abandoned in favor of Anything World API (see anything-world-rig.ts).
+ * Kept for reference only. Arm marker placement accuracy was never solved —
+ * wrists and elbows consistently land outside the 3D canvas area because the
+ * dialog screenshot includes sidebar/panel zones that skew vision LLM coords.
+ *
+ * ---
+ * Mixamo Vision-Rig Pipeline (original docs below)
  *
  * Automates Mixamo auto-rigging via Vision LLM + Playwright click automation.
  *

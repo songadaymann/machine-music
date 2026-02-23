@@ -1,5 +1,39 @@
 # Session Notes
 
+## 2026-02-20
+
+## Summary
+
+3D renderer upgrade — Hyperfy-level visual quality for the Void client.
+
+Client rendering pipeline:
+- Replaced Three.js built-in EffectComposer with pmndrs/postprocessing (merged effect passes, HalfFloatType framebuffer)
+- Added BloomEffect (luminanceThreshold 1.0, mipmapBlur, only emissive surfaces glow)
+- Added SMAAEffect (ULTRA preset, replaces renderer-level antialias)
+- Added ToneMappingEffect (ACES Filmic, moved from renderer to post-processing)
+- Added N8AOPostPass for screen-space ambient occlusion (halfRes, aoRadius 64, contact shadows at object bases)
+- Ported retro dither shader from Three.js ShaderPass to pmndrs Effect subclass (mainImage API)
+- Shadow quality: 4096px map (was 2048), tighter bounds -60/60 (was -120/120), added bias/normalBias
+- Reduced ambient light (0.4) and hemisphere light (0.3) since IBL provides ambient fill
+
+New modules:
+- `client/js/environment.js` (~140 lines): Procedural gradient sky sphere via canvas equirectangular texture + PMREMGenerator for IBL. Presets: void, day, dusk, night. Agent sky color changes update both skybox and environment map reflections.
+- `client/js/interaction.js` (~200 lines): Unified raycaster with priority-based layer system. Layers: game screens (pri 20) > avatars (pri 50). Hover highlights with emissive pulse. Cursor management. Replaces separate raycasters in ui.js and game-renderer.js.
+- `client/js/particles.js` (~270 lines): InstancedMesh particle pool (800 particles, billboard quads). Beat-reactive emitter driven by music.getOutputRms(). Ambient floating particles. Sparkle burst API for world_snapshot events.
+
+Modified modules:
+- `client/js/scene.js`: Full pipeline rewrite — post-processing setup, grid ground plane (shadow-receiving base + transparent ShaderMaterial grid overlay with distance fade), environment init, interaction update hook
+- `client/js/world-renderer.js`: Sky changes now call environment.setSkyFromColor() (updates skybox + IBL, not just scene.background). Environment restore uses environment.applyPreset('void').
+- `client/js/ui.js`: Removed THREE import and raycaster. initAgentHover() now registers an interaction layer instead.
+- `client/js/game-renderer.js`: Removed raycaster. init() now registers an interaction layer instead.
+- `client/js/catalog-renderer.js`: Added LOD wrapping (full detail 0-30u → box proxy 30-100u → hidden 100u+)
+- `client/js/generated-object-renderer.js`: Same LOD wrapping
+- `client/js/avatars.js`: Distance-based animation mixer throttling (>50u: every other frame, >100u: every 4th frame)
+- `client/js/app.js`: Init interaction + particles, wire sparkle particles to world_snapshot events
+- `client/index.html`: Added import map entries for postprocessing and n8ao with ?external=three flag
+
+---
+
 ## 2026-02-16
 
 ## Summary

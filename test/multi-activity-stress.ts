@@ -3,6 +3,11 @@
 // Each agent gets the full skill stack and heartbeat template, just like an OpenClaw instance would.
 // They decide autonomously what to do: compose music, paint visuals, build worlds, design games, socialize.
 //
+// Renderer context: The 3D client now has a full post-processing pipeline (bloom, AO, SMAA, ACES),
+// procedural gradient sky with IBL reflections, grid ground plane, music-reactive particles,
+// unified interaction system, and LOD. Agents can leverage: sky colors (IBL), glow/lava voxels (bloom),
+// spatial music placements (particle bursts), and catalog items (LOD-managed).
+//
 // Usage: bun run test/multi-activity-stress.ts [actions-per-bot|forever] [num-bots]
 //
 // Requires ANTHROPIC_API_KEY in .env or environment.
@@ -71,6 +76,13 @@ const MODELS = {
 
 type ModelTier = keyof typeof MODELS;
 type AgentAction =
+  | "choose_avatar"
+  | "generate_avatar"
+  | "assign_avatar"
+  | "spawn"
+  | "move_to"
+  | "go_home"
+  | "set_presence"
   | "write_slot"
   | "place_music"
   | "update_placement"
@@ -137,7 +149,21 @@ interface AgentBot {
   messagesSent: number;
   observations: number;
   ritualParticipations: number;
+  movements: number;
+  goHomes: number;
+  presenceChanges: number;
+  avatarsGenerated: number;
+  avatarsAssigned: number;
   currentSessionId: string | null;
+  // Avatar + spawn + position state
+  avatarChosen: boolean;
+  hasSpawned: boolean;
+  spawnX: number | null;
+  spawnZ: number | null;
+  posX: number;
+  posZ: number;
+  parcelId: string | null;
+  parcelBounds: { minX: number; maxX: number; minZ: number; maxZ: number } | null;
   // Track action types
   actionLog: Array<{
     action: AgentAction;
@@ -393,7 +419,7 @@ function summarizeWorld(world: unknown): string {
   const env = w.environment as Record<string, unknown> | undefined;
   if (env) {
     const parts: string[] = [];
-    if (env.sky) parts.push(`sky: ${env.sky}`);
+    if (env.sky) parts.push(`sky: ${env.sky} (drives gradient sphere + IBL reflections)`);
     const fog = env.fog as Record<string, unknown> | undefined;
     if (fog?.color) parts.push(`fog: ${fog.color}`);
     const lighting = env.lighting as Record<string, unknown> | undefined;
@@ -487,6 +513,9 @@ function buildUserPrompt(
   worldSnapshot: unknown,
   ritualState: unknown,
   musicPlacements: unknown[],
+  wayfindingState: unknown,
+  directives: unknown[],
+  avatarState: unknown,
   iteration: number,
   totalIterations: number | null,
   catalogItems: string[]
@@ -586,7 +615,7 @@ function buildUserPrompt(
     : undefined;
   const worldContribCount = Array.isArray(worldContribs) ? worldContribs.length : 0;
   const worldHint = worldContribCount < 3
-    ? "\n  TIP: The world is sparse! Use submit_world with voxels (stone, brick, wood blocks on integer grid) to build structures, catalog_items (tree_oak, bench, lamppost, etc.) for decoration, and elements for abstract shapes."
+    ? "\n  TIP: The world is sparse! Use submit_world with voxels (stone, brick, wood blocks on integer grid) to build structures, catalog_items (tree_oak, bench, lamppost, etc.) for decoration, and elements for abstract shapes.\n  TIP: Set a sky color to change the atmosphere — sky drives IBL reflections on all surfaces. Use glow/lava voxels for bloom effects (they emit light halos)."
     : "";
 
   // Music placements summary
@@ -635,12 +664,55 @@ function buildUserPrompt(
           .join("\n")
       : "  (first turn)";
 
-  return `You are "${bot.name}". Turn ${iterLabel}. ${currentSessionNote}
+  // Avatar status summary
+  const av = avatarState as Record<string, unknown> | null;
+  const avAssignment = av?.assignment as Record<string, unknown> | null;
+  const avActiveOrder = av?.active_order as Record<string, unknown> | null;
+  const avLatestOrder = av?.latest_order as Record<string, unknown> | null;
+  let avatarNote: string;
+  if (avAssignment) {
+    avatarNote = `Avatar: custom assigned (${avAssignment.glb_url}).`;
+  } else if (avActiveOrder) {
+    avatarNote = `Avatar: generation in progress (${avActiveOrder.status}, order ${(avActiveOrder.id as string)?.slice(0, 8)}).`;
+  } else if (avLatestOrder && (avLatestOrder.status as string) === "complete") {
+    avatarNote = `Avatar: generic — you have a COMPLETED order ready to assign (order ${(avLatestOrder.id as string)?.slice(0, 8)}). Use assign_avatar!`;
+  } else {
+    avatarNote = "Avatar: generic placeholder. Use generate_avatar with a prompt to create a custom one, or choose_avatar to stay generic.";
+  }
+  const spawnNote = bot.hasSpawned
+    ? `Spawned at (${bot.spawnX}, ${bot.spawnZ}).`
+    : "NOT SPAWNED — use spawn first!";
+
+  // Position and wayfinding summary
+  const wf = wayfindingState as Record<string, unknown> | null;
+  const selfWf = wf?.self as Record<string, unknown> | undefined;
+  const locomotion = selfWf?.locomotionState || "idle";
+  const presence = selfWf?.presenceState || "idle_pose";
+  const movementTo = selfWf?.movementToX !== null && selfWf?.movementToX !== undefined
+    ? `moving to (${Math.round(selfWf.movementToX as number)}, ${Math.round(selfWf.movementToZ as number)}), ${selfWf.movementProgressPct}% done`
+    : "";
+  const positionSummary = `  Position: (${Math.round(bot.posX)}, ${Math.round(bot.posZ)}) | ${locomotion}${movementTo ? ` — ${movementTo}` : ""} | presence: ${presence}`;
+
+  // Parcel summary
+  const parcelSummary = bot.parcelId
+    ? `  Parcel: ${bot.parcelId} bounds (${bot.parcelBounds?.minX}, ${bot.parcelBounds?.minZ}) to (${bot.parcelBounds?.maxX}, ${bot.parcelBounds?.maxZ})`
+    : "  Parcel: none assigned";
+
+  // Directives summary
+  const directivesSummary = directives.length > 0
+    ? directives.map((d: any) => `  [${d.from_address?.slice(0, 8) || "?"}]: ${d.content}`).join("\n")
+    : "  (no pending directives)";
+
+  return `You are "${bot.name}". Turn ${iterLabel}. ${currentSessionNote} ${avatarNote} ${spawnNote}
 
 Follow your skills and heartbeat. Here is the current arena state:
 
 Recent actions:
 ${actionHistory}
+
+Position & Parcel:
+${positionSummary}
+${parcelSummary}
 
 Composition:
 ${compSummary}
@@ -660,6 +732,9 @@ ${onlineSummary}
 Messages:
 ${messageSummary}
 
+Directives:
+${directivesSummary}
+
 Context:
 ${contextSummary}
 
@@ -670,6 +745,13 @@ Respond with raw JSON only:
 { "reasoning": "...", "action": "<action>", "payload": {<see below>} }
 
 Action payloads:
+  choose_avatar: {} (use generic placeholder avatar — quick, no generation needed)
+  generate_avatar: { "prompt": "description of your avatar" } (starts ~15 min generation via Meshy — only if you want a custom look)
+  assign_avatar: { "order_id": "..." } (assign a completed avatar order — check your avatar status for ready orders)
+  spawn: { "x": <num>, "z": <num>, "reason": "..." } (instant one-time position set)
+  move_to: { "x": <num>, "z": <num>, "reason": "..." } (walk to location at 4 m/s, world is unbounded)
+  go_home: { "reason": "..." } (instant teleport to your parcel center, reusable)
+  set_presence: { "presenceState": "dance|headbob|spectate_screen|cheer|celebrate|taunt|rest|stretch|wander", "durationSec": <1-300>, "reason": "..." }
   place_music: { "instrument_type": "808|cello|dusty_piano|synth|prophet_5|synthesizer|tr66", "pattern": "<strudel>", "position": { "x": <num>, "z": <num> } }
   update_placement: { "placement_id": "...", "pattern": "<strudel>" }
   remove_placement: { "placement_id": "..." }
@@ -679,12 +761,79 @@ Action payloads:
   update_output: { "session_id": "...", "pattern"|"output": ... }
   leave_session: { "session_id": "..." }
   submit_world: { "output": { "elements": [...], "voxels": [{"block":"stone","x":0,"y":0,"z":0}, ...], "catalog_items": [{"item":"tree_oak","pos":[10,0,-15]}, ...], "sky": "#hex", "fog": {...}, "lighting": {...} } }
+    sky: hex color drives a gradient sky sphere + IBL reflections on ALL PBR surfaces (metallic objects reflect the sky color)
     voxel blocks: stone, brick, wood, plank, glass, metal, grass, dirt, sand, water, ice, lava, concrete, marble, obsidian, glow (max 500, integer coords ±100, y 0-100)
+      glow and lava blocks emit bloom light (they have emissiveIntensity > 1.0, so they glow and cast light halos)
     catalog items: ${catalogItems.length > 0 ? catalogItems.join(", ") : "(catalog unavailable)"} (max 30, pos [x,y,z] ±100, optional rotation/scale)
+      catalog items use LOD — full detail within 30 units, simplified beyond 30u, hidden beyond 100u
   send_message: { "content": "max 280 chars", "to": "optional agent name" }
   nominate_ritual: { "bpm": 120, "key": "C", "scale": "pentatonic", "reasoning": "..." }
   vote_ritual: { "bpm_candidate": <n>, "key_candidate": <n> }
   observe: {}`;
+}
+
+// --- Payload detail summary for logging ---
+
+function payloadDetail(action: AgentAction, payload: Record<string, unknown>): string {
+  switch (action) {
+    case "generate_avatar": {
+      const prompt = payload.prompt as string;
+      return prompt ? `prompt="${prompt.slice(0, 60)}${prompt.length > 60 ? "..." : ""}"` : "";
+    }
+    case "assign_avatar":
+      return payload.order_id ? `order=${(payload.order_id as string).slice(0, 8)}` : "";
+    case "spawn":
+    case "move_to":
+      return `(${payload.x ?? "?"}, ${payload.z ?? "?"})`;
+    case "go_home":
+      return payload.reason ? `reason="${(payload.reason as string).slice(0, 40)}"` : "";
+    case "set_presence":
+      return `${payload.presenceState || payload.presence_state || "?"}${payload.durationSec ? ` ${payload.durationSec}s` : ""}`;
+    case "place_music": {
+      const pat = payload.pattern as string;
+      return `${payload.instrument_type || "?"} "${pat?.slice(0, 40) || ""}${(pat?.length ?? 0) > 40 ? "..." : ""}"`;
+    }
+    case "update_placement":
+      return `${(payload.placement_id as string)?.slice(0, 8) || "?"}`;
+    case "remove_placement":
+      return `${(payload.placement_id as string)?.slice(0, 8) || "?"}`;
+    case "write_slot": {
+      const code = payload.code as string;
+      return `slot ${payload.slot_id}: "${code?.slice(0, 40) || ""}${(code?.length ?? 0) > 40 ? "..." : ""}"`;
+    }
+    case "start_session":
+      return `${payload.type || "?"}: "${(payload.title as string)?.slice(0, 30) || "(untitled)"}"`;
+    case "join_session":
+      return `${(payload.session_id as string)?.slice(0, 8) || "?"}`;
+    case "update_output":
+      return `${(payload.session_id as string)?.slice(0, 8) || "current"}`;
+    case "leave_session":
+      return `${(payload.session_id as string)?.slice(0, 8) || "current"}`;
+    case "submit_world": {
+      const output = payload.output as Record<string, unknown> | undefined;
+      if (!output) return "";
+      const parts: string[] = [];
+      const els = output.elements as unknown[] | undefined;
+      if (Array.isArray(els) && els.length > 0) parts.push(`${els.length} elements`);
+      const vox = output.voxels as unknown[] | undefined;
+      if (Array.isArray(vox) && vox.length > 0) parts.push(`${vox.length} voxels`);
+      const cat = output.catalog_items as unknown[] | undefined;
+      if (Array.isArray(cat) && cat.length > 0) parts.push(`${cat.length} catalog`);
+      if (output.sky) parts.push(`sky=${output.sky}`);
+      return parts.join(", ") || "empty output";
+    }
+    case "send_message": {
+      const content = payload.content as string;
+      const to = payload.to as string;
+      return `${to ? `→${to}: ` : ""}"${content?.slice(0, 50) || ""}${(content?.length ?? 0) > 50 ? "..." : ""}"`;
+    }
+    case "nominate_ritual":
+      return `bpm=${payload.bpm ?? "?"} key=${payload.key ?? "?"} scale=${payload.scale ?? "?"}`;
+    case "vote_ritual":
+      return `bpm_cand=${payload.bpm_candidate ?? "?"} key_cand=${payload.key_candidate ?? "?"}`;
+    default:
+      return "";
+  }
 }
 
 // --- Execute an agent's chosen action ---
@@ -697,6 +846,137 @@ async function executeAction(
 
   try {
     switch (action) {
+      case "choose_avatar": {
+        // Use generic placeholder — just mark as chosen
+        log(bot.name, bot.model, `  avatar: choosing generic placeholder`);
+        bot.avatarChosen = true;
+        return { success: true };
+      }
+
+      case "generate_avatar": {
+        const prompt = payload.prompt as string;
+        if (!prompt) {
+          return { success: false, error: "missing prompt" };
+        }
+        log(bot.name, bot.model, `  avatar: requesting generation — "${prompt.slice(0, 80)}${prompt.length > 80 ? "..." : ""}"`);
+        const body: Record<string, unknown> = { prompt };
+        if (payload.texture_prompt) body.texture_prompt = payload.texture_prompt;
+        const res = await api("POST", "/avatar/generate", body, bot.token);
+        if (res.status === 202) {
+          bot.avatarsGenerated++;
+          bot.avatarChosen = true;
+          const orderId = res.data?.id || res.data?.order_id;
+          log(bot.name, bot.model, `  avatar: generation started (order ${orderId ? String(orderId).slice(0, 8) : "?"})`);
+          return { success: true };
+        }
+        // 503 = meshy not configured (expected in test without MESHY_API_KEY)
+        if (res.status === 503) {
+          bot.avatarChosen = true; // Don't block — use generic
+          log(bot.name, bot.model, `  avatar: Meshy not configured (503) — falling back to generic`);
+          return { success: false, error: "meshy_not_configured" };
+        }
+        // 409 = generation already in progress
+        if (res.status === 409) {
+          bot.avatarChosen = true;
+          log(bot.name, bot.model, `  avatar: generation already in progress (409)`);
+          return { success: false, error: "avatar_generation_in_progress" };
+        }
+        log(bot.name, bot.model, `  avatar: generation failed — ${res.data?.error || `HTTP ${res.status}`}`);
+        return { success: false, error: res.data?.error || `HTTP ${res.status}` };
+      }
+
+      case "assign_avatar": {
+        const orderId = payload.order_id as string;
+        if (!orderId) {
+          return { success: false, error: "missing order_id" };
+        }
+        log(bot.name, bot.model, `  avatar: assigning order ${orderId.slice(0, 8)}`);
+        const res = await api("POST", "/avatar/assign", { order_id: orderId }, bot.token);
+        if (res.status === 200) {
+          bot.avatarsAssigned++;
+          bot.avatarChosen = true;
+          log(bot.name, bot.model, `  avatar: assigned! glb=${res.data?.assignment?.glb_url || "?"}`);
+          return { success: true };
+        }
+        log(bot.name, bot.model, `  avatar: assign failed — ${res.data?.error || `HTTP ${res.status}`}`);
+        return { success: false, error: res.data?.error || `HTTP ${res.status}` };
+      }
+
+      case "spawn": {
+        const spawnX = payload.x as number ?? randomInt(-40, 40);
+        const spawnZ = payload.z as number ?? randomInt(-40, 40);
+        const res = await api("POST", "/wayfinding/action", {
+          type: "SPAWN_AT",
+          x: spawnX,
+          z: spawnZ,
+          reason: payload.reason as string || "initial spawn",
+        }, bot.token);
+        if (res.status === 200 && res.data?.ok) {
+          bot.hasSpawned = true;
+          bot.spawnX = spawnX;
+          bot.spawnZ = spawnZ;
+          return { success: true };
+        }
+        // Handle already_spawned gracefully
+        if (res.data?.reason_code === "already_spawned") {
+          bot.hasSpawned = true;
+          return { success: true };
+        }
+        return { success: false, error: res.data?.reason_code || res.data?.error || `HTTP ${res.status}` };
+      }
+
+      case "move_to": {
+        const x = payload.x as number;
+        const z = payload.z as number;
+        if (x === undefined || z === undefined) {
+          return { success: false, error: "missing x or z" };
+        }
+        const res = await api("POST", "/wayfinding/action", {
+          type: "MOVE_TO",
+          x,
+          z,
+          reason: payload.reason as string || "exploring",
+        }, bot.token);
+        if (res.status === 200 && res.data?.ok) {
+          bot.movements++;
+          return { success: true };
+        }
+        return { success: false, error: res.data?.reason_code || res.data?.error || `HTTP ${res.status}` };
+      }
+
+      case "go_home": {
+        const res = await api("POST", "/wayfinding/action", {
+          type: "GO_HOME",
+          reason: payload.reason as string || "returning home",
+        }, bot.token);
+        if (res.status === 200 && res.data?.ok) {
+          bot.goHomes++;
+          return { success: true };
+        }
+        return { success: false, error: res.data?.reason_code || res.data?.error || `HTTP ${res.status}` };
+      }
+
+      case "set_presence": {
+        const presenceState = payload.presenceState as string || payload.presence_state as string;
+        if (!presenceState) {
+          return { success: false, error: "missing presenceState" };
+        }
+        const body: Record<string, unknown> = {
+          type: "SET_PRESENCE_STATE",
+          presenceState,
+          reason: payload.reason as string || "expressing",
+        };
+        if (payload.durationSec || payload.duration_sec) {
+          body.durationSec = payload.durationSec || payload.duration_sec;
+        }
+        const res = await api("POST", "/wayfinding/action", body, bot.token);
+        if (res.status === 200 && res.data?.ok) {
+          bot.presenceChanges++;
+          return { success: true };
+        }
+        return { success: false, error: res.data?.reason_code || res.data?.error || `HTTP ${res.status}` };
+      }
+
       case "write_slot": {
         const slotId = payload.slot_id as number;
         const code = payload.code as string;
@@ -981,6 +1261,29 @@ async function runBotLoop(bot: AgentBot, actionsPerBot: number | null) {
   if (!didFinishStartupWait) return;
 
   const systemPrompt = buildSystemPrompt();
+
+  // --- Spawn (mandatory first step before creative loop) ---
+  // Avatar choice is left to the LLM — the heartbeat template tells agents
+  // to check their avatar status and decide (generate, assign, or use generic).
+
+  if (!bot.hasSpawned) {
+    const spawnX = randomInt(-40, 40);
+    const spawnZ = randomInt(-40, 40);
+    log(bot.name, bot.model, `spawning at (${spawnX}, ${spawnZ})...`);
+    const spawnResult = await executeAction(bot, {
+      reasoning: "First step: spawning at chosen location",
+      action: "spawn",
+      payload: { x: spawnX, z: spawnZ, reason: "initial spawn for stress test" },
+    });
+    bot.actionLog.push({
+      action: "spawn",
+      success: spawnResult.success,
+      error: spawnResult.error,
+      timestamp: Date.now(),
+    });
+    log(bot.name, bot.model, spawnResult.success ? `  spawned at (${spawnX}, ${spawnZ})` : `  spawn FAIL (${spawnResult.error})`);
+  }
+
   let iteration = 0;
 
   while (
@@ -1003,6 +1306,10 @@ async function runBotLoop(bot: AgentBot, actionsPerBot: number | null) {
         worldRes,
         ritualRes,
         placementsRes,
+        wayfindingRes,
+        parcelRes,
+        directivesRes,
+        avatarRes,
       ] = await Promise.all([
         api("GET", "/composition"),
         api("GET", "/sessions"),
@@ -1012,6 +1319,10 @@ async function runBotLoop(bot: AgentBot, actionsPerBot: number | null) {
         api("GET", "/world"),
         api("GET", "/ritual").catch(() => ({ status: 404, data: null })),
         api("GET", "/music/placements"),
+        api("GET", "/wayfinding/state", undefined, bot.token).catch(() => ({ status: 404, data: null })),
+        api("GET", "/parcels/mine", undefined, bot.token).catch(() => ({ status: 404, data: null })),
+        api("GET", "/agents/directives", undefined, bot.token).catch(() => ({ status: 404, data: null })),
+        api("GET", "/avatar/me", undefined, bot.token).catch(() => ({ status: 404, data: null })),
       ]);
 
       const composition = compRes.status === 200 ? compRes.data : null;
@@ -1044,6 +1355,29 @@ async function runBotLoop(bot: AgentBot, actionsPerBot: number | null) {
         ? (placementsRaw as any).placements
         : [];
 
+      // Update position from wayfinding state
+      const wayfindingState = wayfindingRes.status === 200 ? wayfindingRes.data : null;
+      if (wayfindingState?.self) {
+        bot.posX = wayfindingState.self.x ?? bot.posX;
+        bot.posZ = wayfindingState.self.z ?? bot.posZ;
+      }
+
+      // Update parcel bounds
+      const parcelState = parcelRes.status === 200 ? parcelRes.data : null;
+      if (parcelState?.bounds) {
+        bot.parcelBounds = parcelState.bounds;
+        bot.parcelId = parcelState.id ?? bot.parcelId;
+      }
+
+      // Directives
+      const directives: unknown[] =
+        directivesRes.status === 200 && Array.isArray(directivesRes.data?.directives)
+          ? directivesRes.data.directives
+          : [];
+
+      // Avatar state
+      const avatarState = avatarRes.status === 200 ? avatarRes.data : null;
+
       // 2. Build prompt and ask Claude
       const userPrompt = buildUserPrompt(
         bot,
@@ -1055,6 +1389,9 @@ async function runBotLoop(bot: AgentBot, actionsPerBot: number | null) {
         worldSnapshot,
         ritualState,
         placements,
+        wayfindingState,
+        directives,
+        avatarState,
         iteration,
         actionsPerBot,
         catalogItemNames
@@ -1068,10 +1405,11 @@ async function runBotLoop(bot: AgentBot, actionsPerBot: number | null) {
 
       // 3. Parse response
       const response = parseAgentResponse(raw);
+      const detail = payloadDetail(response.action, response.payload);
       log(
         bot.name,
         bot.model,
-        `→ ${response.action}: ${response.reasoning.slice(0, 80)}`
+        `→ ${response.action}${detail ? ` [${detail}]` : ""}: ${response.reasoning.slice(0, 100)}`
       );
 
       // 4. Execute action
@@ -1087,13 +1425,13 @@ async function runBotLoop(bot: AgentBot, actionsPerBot: number | null) {
 
       if (result.success) {
         bot.actionsSucceeded++;
-        log(bot.name, bot.model, `  OK (${response.action})`);
+        log(bot.name, bot.model, `  OK (${response.action}${detail ? ` ${detail}` : ""})`);
       } else {
         bot.actionsFailed++;
         log(
           bot.name,
           bot.model,
-          `  FAIL (${response.action}): ${result.error}`
+          `  FAIL (${response.action}${detail ? ` ${detail}` : ""}): ${result.error}`
         );
       }
 
@@ -1101,18 +1439,21 @@ async function runBotLoop(bot: AgentBot, actionsPerBot: number | null) {
       try {
         // Infer activity category from the action
         const musicActions = new Set(["write_slot", "place_music", "update_placement", "remove_placement"]);
+        const movementActions = new Set(["move_to", "go_home", "set_presence"]);
         const activityCategory =
           musicActions.has(response.action)
             ? "music"
-            : response.action === "submit_world"
-              ? "world"
-              : response.action === "start_session"
-                ? (payload_type(response.payload) || "mixed")
-                : response.action === "send_message"
-                  ? "social"
-                  : response.action === "observe"
-                    ? "observe"
-                    : "mixed";
+            : movementActions.has(response.action)
+              ? "movement"
+              : response.action === "submit_world"
+                ? "world"
+                : response.action === "start_session"
+                  ? (payload_type(response.payload) || "mixed")
+                  : response.action === "send_message"
+                    ? "social"
+                    : response.action === "observe"
+                      ? "observe"
+                      : "mixed";
 
         await api(
           "POST",
@@ -1220,9 +1561,11 @@ function printReport(
   // Activity variety — the key metric for this test
   console.log("\n  ACTIVITY VARIETY (did agents explore different mediums?):");
   const actionCategories = {
+    setup: ["choose_avatar", "generate_avatar", "assign_avatar", "spawn"],
     music: ["write_slot", "place_music", "update_placement", "remove_placement"],
     sessions: ["start_session", "join_session", "update_output", "leave_session"],
     world: ["submit_world"],
+    movement: ["move_to", "go_home", "set_presence"],
     social: ["send_message"],
     observe: ["observe"],
     ritual: ["nominate_ritual", "vote_ritual"],
@@ -1276,6 +1619,36 @@ function printReport(
     console.log(
       `    ${tier.toUpperCase().padEnd(8)} agents: ${tierBots.length}  success: ${totalSucceeded}/${totalAttempted} (${rate}%)  val-errors: ${totalValErrors}`
     );
+  }
+
+  // Avatar + spawn stats
+  console.log("\n  AVATAR & SPAWN:");
+  const avatarsChosen = bots.filter(b => b.avatarChosen).length;
+  const totalSpawns = bots.filter(b => b.hasSpawned).length;
+  const totalAvatarsGenerated = bots.reduce((s, b) => s + b.avatarsGenerated, 0);
+  const totalAvatarsAssigned = bots.reduce((s, b) => s + b.avatarsAssigned, 0);
+  console.log(`    Avatars chosen: ${avatarsChosen}/${bots.length}  Spawned: ${totalSpawns}/${bots.length}`);
+  console.log(`    Avatar generations started: ${totalAvatarsGenerated}  Avatars assigned: ${totalAvatarsAssigned}`);
+
+  // Wayfinding stats
+  console.log("\n  WAYFINDING:");
+  const totalMovements = bots.reduce((s, b) => s + b.movements, 0);
+  const totalGoHomes = bots.reduce((s, b) => s + b.goHomes, 0);
+  const totalPresenceChanges = bots.reduce((s, b) => s + b.presenceChanges, 0);
+  console.log(`    Movements (MOVE_TO): ${totalMovements}  GO_HOME: ${totalGoHomes}  Presence changes: ${totalPresenceChanges}`);
+
+  // Position spread
+  const positions = bots.map(b => ({ x: b.posX, z: b.posZ }));
+  if (positions.length > 1) {
+    const minX = Math.min(...positions.map(p => p.x));
+    const maxX = Math.max(...positions.map(p => p.x));
+    const minZ = Math.min(...positions.map(p => p.z));
+    const maxZ = Math.max(...positions.map(p => p.z));
+    const spread = Math.round(Math.sqrt((maxX - minX) ** 2 + (maxZ - minZ) ** 2));
+    console.log(`    Position spread: ${spread}m diagonal (X: ${Math.round(minX)} to ${Math.round(maxX)}, Z: ${Math.round(minZ)} to ${Math.round(maxZ)})`);
+    for (const bot of bots) {
+      console.log(`      ${bot.name.padEnd(22)} at (${Math.round(bot.posX)}, ${Math.round(bot.posZ)}) parcel: ${bot.parcelId || "none"}`);
+    }
   }
 
   // Collaboration metrics
@@ -1338,6 +1711,18 @@ function printReport(
   }
   console.log(
     `    Unique action types used: ${allActionTypes.size} — [${[...allActionTypes].join(", ")}]`
+  );
+
+  // Renderer feature adoption — did agents use the new visual capabilities?
+  console.log("\n  RENDERER FEATURE ADOPTION:");
+  console.log(
+    `    World submissions: ${bots.reduce((s, b) => s + b.worldSubmissions, 0)} (sky/IBL, voxels, catalog items with LOD)`
+  );
+  console.log(
+    `    Music placements: ${bots.reduce((s, b) => s + b.musicPlacements, 0)} (spatial audio + beat-reactive particles)`
+  );
+  console.log(
+    "    Note: Post-processing (bloom, AO, SMAA), grid ground, LOD, and interaction are always active in the client"
   );
 
   if (parseFailures > totalActions * 0.2) {
@@ -1451,7 +1836,20 @@ async function main() {
       messagesSent: 0,
       observations: 0,
       ritualParticipations: 0,
+      movements: 0,
+      goHomes: 0,
+      presenceChanges: 0,
+      avatarsGenerated: 0,
+      avatarsAssigned: 0,
       currentSessionId: null,
+      avatarChosen: false,
+      hasSpawned: false,
+      spawnX: null,
+      spawnZ: null,
+      posX: res.data.parcel?.center?.x ?? 0,
+      posZ: res.data.parcel?.center?.z ?? 0,
+      parcelId: res.data.parcel?.id ?? null,
+      parcelBounds: res.data.parcel?.bounds ?? null,
       actionLog: [],
     };
     bots.push(bot);
@@ -1592,6 +1990,11 @@ async function main() {
           .map(([b, n]) => `${b}:${n}`)
           .join(", ");
         console.log(`    Block types: ${blockSummary}`);
+        // Bloom-capable blocks
+        const bloomBlocks = (allBlocks["glow"] || 0) + (allBlocks["lava"] || 0);
+        if (bloomBlocks > 0) {
+          console.log(`    Bloom-emitting blocks (glow+lava): ${bloomBlocks}`);
+        }
       }
       if (totalCatalogItems > 0) {
         const catSummary = Object.entries(allCatalogNames)
@@ -1599,6 +2002,18 @@ async function main() {
           .map(([n, c]) => `${n}:${c}`)
           .join(", ");
         console.log(`    Catalog items: ${catSummary}`);
+      }
+
+      // Check if agents used sky/environment features
+      const skySet = worldContributions.some((c: any) => {
+        const contrib = c as Record<string, unknown>;
+        return contrib.sky || (contrib.environment as Record<string, unknown>)?.sky;
+      });
+      const envObj = worldData.environment as Record<string, unknown> | undefined;
+      if (envObj?.sky) {
+        console.log(`    Sky color: ${envObj.sky} (gradient sphere + IBL active)`);
+      } else if (!skySet) {
+        console.log(`    Sky: default (no agent set a sky color — IBL reflections are default gray)`);
       }
     }
   }

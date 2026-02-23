@@ -1,6 +1,6 @@
 // instruments.js -- Dynamic spatial instrument placement
 //
-// GLB models served from /models/insrtuments/*.glb
+// GLB models served from /models/instruments/*.glb
 // Instruments placed at arbitrary world positions by agents.
 // Falls back to placeholder geometry if loading fails.
 
@@ -9,13 +9,13 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
 // Map instrument type keys (from server InstrumentType) to model configs
 const INSTRUMENT_MODELS = {
-    '808':          { path: '/models/insrtuments/808.glb',                  scale: 0.001, yOffset: 0.65, rot: 1.558, color: 0xe74c3c },
-    'cello':        { path: '/models/insrtuments/cello.glb',                scale: 1.26,  yOffset: 0.95, rot: 0,     color: 0x3498db },
-    'dusty_piano':  { path: '/models/insrtuments/dusty_piano.glb',          scale: 1.46,  yOffset: 0,    rot: 0,     color: 0x9b59b6 },
-    'synth':        { path: '/models/insrtuments/synth.glb',                scale: 0.01,  yOffset: 0.5,  rot: 0,     color: 0x2ecc71 },
-    'prophet_5':    { path: '/models/insrtuments/prophet_5_synthesiser.glb', scale: 0.01,  yOffset: 0.3,  rot: 0,     color: 0xf39c12 },
-    'synthesizer':  { path: '/models/insrtuments/synthesizer.glb',          scale: 0.01,  yOffset: 0.5,  rot: 0,     color: 0x1abc9c },
-    'tr66':         { path: '/models/insrtuments/tr-66_rhythm_arranger.glb', scale: 0.01,  yOffset: 0.5,  rot: 0,     color: 0xe67e22 },
+    '808':          { path: '/models/instruments/808.glb',                  scale: 0.001, yOffset: 0.65, rot: 1.558, color: 0xe74c3c },
+    'cello':        { path: '/models/instruments/cello.glb',                scale: 1.26,  yOffset: 0.95, rot: 0,     color: 0x3498db },
+    'dusty_piano':  { path: '/models/instruments/dusty_piano.glb',          scale: 1.46,  yOffset: 0,    rot: 0,     color: 0x9b59b6 },
+    'synth':        { path: '/models/instruments/synth.glb',                scale: 0.01,  yOffset: 0.5,  rot: 0,     color: 0x2ecc71 },
+    'prophet_5':    { path: '/models/instruments/prophet_5_synthesiser.glb', scale: 0.01,  yOffset: 0.3,  rot: 0,     color: 0xf39c12 },
+    'synthesizer':  { path: '/models/instruments/synthesizer.glb',          scale: 0.01,  yOffset: 0.5,  rot: 0,     color: 0x1abc9c },
+    'tr66':         { path: '/models/instruments/tr-66_rhythm_arranger.glb', scale: 0.01,  yOffset: 0.5,  rot: 0,     color: 0xe67e22 },
 };
 
 // Actively placed instruments: placementId -> { group, placement }

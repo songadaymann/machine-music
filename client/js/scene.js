@@ -1,18 +1,26 @@
-// scene.js -- Blank void scene with fly/orbit camera controls.
+// scene.js -- Void scene with fly/orbit camera controls and post-processing pipeline.
 // Agents populate this space via world contributions, visual sessions, etc.
 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
-import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
-import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import {
+    EffectComposer, EffectPass, RenderPass, Effect,
+    BloomEffect, SMAAEffect, ToneMappingEffect,
+    SMAAPreset, ToneMappingMode, BlendFunction,
+} from 'postprocessing';
+import { N8AOPostPass } from 'n8ao';
+import * as environment from './environment.js';
+import * as interaction from './interaction.js';
 
 let renderer, scene, camera, controls;
 let composer = null;
-let retroPass = null;
+let n8aoPass = null;
+let retroEffect = null;
+let retroEffectPass = null;
 let clock;
 let canvasEl = null;
 let retroFxEnabled = true;
+let aoEnabled = true;
 
 const updateCallbacks = [];
 const cameraModeListeners = new Set();
@@ -41,6 +49,7 @@ const VEC_MOVE = new THREE.Vector3();
 export function getScene() { return scene; }
 export function getCamera() { return camera; }
 export function getRenderer() { return renderer; }
+export function getComposer() { return composer; }
 export function getClock() { return clock; }
 export function getCameraMode() { return cameraMode; }
 export function canUseFlyMode() { return !isTouchLikeDevice(); }
@@ -123,18 +132,19 @@ export function init(canvas) {
 
     renderer = new THREE.WebGLRenderer({
         canvas,
-        antialias: true,
+        antialias: false, // SMAA handles anti-aliasing in post
         alpha: false,
+        powerPreference: 'high-performance',
     });
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.38;
+    // Tone mapping handled by ToneMappingEffect in post-processing
+    renderer.toneMapping = THREE.NoToneMapping;
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
 
     scene = new THREE.Scene();
-    scene.background = new THREE.Color(0xf0f0f0);
 
     camera = new THREE.PerspectiveCamera(52, window.innerWidth / window.innerHeight, 0.1, 800);
     camera.position.set(0, 12, 40);
@@ -153,8 +163,11 @@ export function init(canvas) {
     addVoidLights();
     scene.add(buildGroundPlane());
 
-    setupRetroPostprocess();
-    installRetroFxToggle();
+    // Environment: procedural sky gradient + IBL reflections on all PBR materials
+    environment.init(scene, renderer, 'void');
+
+    setupPostProcessing();
+    installToggles();
 
     window.addEventListener('resize', onResize);
     bindInputListeners();
@@ -166,23 +179,25 @@ export function init(canvas) {
 }
 
 function addVoidLights() {
-    const ambient = new THREE.AmbientLight(0xffffff, 1.0);
+    const ambient = new THREE.AmbientLight(0xffffff, 0.4);
     scene.add(ambient);
 
-    const hemi = new THREE.HemisphereLight(0xffffff, 0x888888, 0.6);
+    const hemi = new THREE.HemisphereLight(0xffffff, 0x888888, 0.3);
     scene.add(hemi);
 
     const keyLight = new THREE.DirectionalLight(0xffffff, 1.2);
     keyLight.position.set(20, 30, 20);
     keyLight.castShadow = true;
-    keyLight.shadow.mapSize.width = 2048;
-    keyLight.shadow.mapSize.height = 2048;
+    keyLight.shadow.mapSize.width = 4096;
+    keyLight.shadow.mapSize.height = 4096;
     keyLight.shadow.camera.near = 0.5;
-    keyLight.shadow.camera.far = 300;
-    keyLight.shadow.camera.left = -120;
-    keyLight.shadow.camera.right = 120;
-    keyLight.shadow.camera.top = 120;
-    keyLight.shadow.camera.bottom = -120;
+    keyLight.shadow.camera.far = 200;
+    keyLight.shadow.camera.left = -60;
+    keyLight.shadow.camera.right = 60;
+    keyLight.shadow.camera.top = 60;
+    keyLight.shadow.camera.bottom = -60;
+    keyLight.shadow.bias = -0.0005;
+    keyLight.shadow.normalBias = 0.02;
     scene.add(keyLight);
 
     const fillLight = new THREE.DirectionalLight(0xd0d8ff, 0.4);
@@ -191,142 +206,236 @@ function addVoidLights() {
 }
 
 function buildGroundPlane() {
-    const ground = new THREE.Mesh(
+    const group = new THREE.Group();
+    group.name = 'void-ground';
+
+    // Layer 1: Shadow-receiving base plane (MeshStandardMaterial)
+    const basePlane = new THREE.Mesh(
         new THREE.PlaneGeometry(600, 600),
         new THREE.MeshStandardMaterial({
             color: 0xe8e8e8,
-            roughness: 0.9,
+            roughness: 0.95,
             metalness: 0.0,
         })
     );
-    ground.rotation.x = -Math.PI / 2;
-    ground.receiveShadow = true;
-    ground.name = 'void-ground';
-    return ground;
+    basePlane.rotation.x = -Math.PI / 2;
+    basePlane.receiveShadow = true;
+    basePlane.name = 'void-ground-base';
+    group.add(basePlane);
+
+    // Layer 2: Transparent grid overlay (ShaderMaterial)
+    const gridUniforms = {
+        cameraPos: { value: new THREE.Vector3() },
+        gridColor: { value: new THREE.Color(0x888888) },
+        fadeDist: { value: 150.0 },
+    };
+
+    const gridPlane = new THREE.Mesh(
+        new THREE.PlaneGeometry(600, 600),
+        new THREE.ShaderMaterial({
+            uniforms: gridUniforms,
+            transparent: true,
+            depthWrite: false,
+            vertexShader: /* glsl */`
+                varying vec3 vWorldPos;
+                void main() {
+                    vec4 worldPos = modelMatrix * vec4(position, 1.0);
+                    vWorldPos = worldPos.xyz;
+                    gl_Position = projectionMatrix * viewMatrix * worldPos;
+                }
+            `,
+            fragmentShader: /* glsl */`
+                uniform vec3 cameraPos;
+                uniform vec3 gridColor;
+                uniform float fadeDist;
+                varying vec3 vWorldPos;
+
+                float gridLine(float coord, float lineWidth) {
+                    float d = abs(fract(coord - 0.5) - 0.5);
+                    return 1.0 - smoothstep(0.0, lineWidth, d);
+                }
+
+                void main() {
+                    float dist = distance(vWorldPos.xz, cameraPos.xz);
+                    float fade = 1.0 - smoothstep(fadeDist * 0.5, fadeDist, dist);
+
+                    // Fine grid (1-unit)
+                    float fineX = gridLine(vWorldPos.x, 0.04);
+                    float fineZ = gridLine(vWorldPos.z, 0.04);
+                    float fine = max(fineX, fineZ) * 0.25;
+
+                    // Coarse grid (10-unit)
+                    float coarseX = gridLine(vWorldPos.x * 0.1, 0.03);
+                    float coarseZ = gridLine(vWorldPos.z * 0.1, 0.03);
+                    float coarse = max(coarseX, coarseZ) * 0.5;
+
+                    float line = max(fine, coarse) * fade;
+                    if (line < 0.01) discard;
+
+                    gl_FragColor = vec4(gridColor, line);
+                }
+            `,
+        })
+    );
+    gridPlane.rotation.x = -Math.PI / 2;
+    gridPlane.position.y = 0.005; // Slight offset to prevent z-fighting
+    gridPlane.name = 'void-ground-grid';
+    group.add(gridPlane);
+
+    // Update camera position uniform each frame for distance-based fade
+    onUpdate(() => {
+        if (camera) {
+            gridUniforms.cameraPos.value.copy(camera.position);
+        }
+    });
+
+    return group;
 }
 
-function setupRetroPostprocess() {
+// --- Parcel overlay ---
+
+let parcelOverlayGroup = null;
+
+export function setParcelOverlay(parcelSnapshot) {
+    if (parcelOverlayGroup) {
+        scene.remove(parcelOverlayGroup);
+        parcelOverlayGroup = null;
+    }
+    if (!parcelSnapshot) return;
+
+    parcelOverlayGroup = new THREE.Group();
+    parcelOverlayGroup.name = 'parcel-overlay';
+
+    const Y = 0.02;
+
+    // Town square ring
+    const sq = parcelSnapshot.townSquare;
+    if (sq) {
+        const segments = 64;
+        const points = [];
+        for (let i = 0; i <= segments; i++) {
+            const a = (i / segments) * Math.PI * 2;
+            points.push(new THREE.Vector3(
+                Math.cos(a) * sq.radius + sq.center.x,
+                Y,
+                Math.sin(a) * sq.radius + sq.center.z
+            ));
+        }
+        const sqGeo = new THREE.BufferGeometry().setFromPoints(points);
+        const sqLine = new THREE.Line(sqGeo, new THREE.LineBasicMaterial({ color: 0xffd700, transparent: true, opacity: 0.5 }));
+        sqLine.name = 'town-square-ring';
+        parcelOverlayGroup.add(sqLine);
+    }
+
+    // Parcel boundaries
+    const TIER_COLORS = { premium: 0xff6644, standard: 0x44aaff, free: 0x66ff88 };
+    for (const parcel of parcelSnapshot.parcels) {
+        const b = parcel.bounds;
+        const color = TIER_COLORS[parcel.tier] ?? 0x888888;
+        const opacity = parcel.owner ? 0.4 : 0.15;
+
+        const corners = [
+            new THREE.Vector3(b.minX, Y, b.minZ),
+            new THREE.Vector3(b.maxX, Y, b.minZ),
+            new THREE.Vector3(b.maxX, Y, b.maxZ),
+            new THREE.Vector3(b.minX, Y, b.maxZ),
+            new THREE.Vector3(b.minX, Y, b.minZ), // close loop
+        ];
+        const geo = new THREE.BufferGeometry().setFromPoints(corners);
+        const line = new THREE.Line(geo, new THREE.LineBasicMaterial({ color, transparent: true, opacity }));
+        line.name = `parcel-${parcel.id}`;
+        parcelOverlayGroup.add(line);
+    }
+
+    scene.add(parcelOverlayGroup);
+}
+
+// --- Post-processing pipeline (pmndrs/postprocessing + n8ao) ---
+
+function setupPostProcessing() {
     if (!renderer || !scene || !camera) return;
 
-    composer = new EffectComposer(renderer);
-    composer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    composer.setSize(window.innerWidth, window.innerHeight);
+    const w = window.innerWidth;
+    const h = window.innerHeight;
 
+    composer = new EffectComposer(renderer, {
+        frameBufferType: THREE.HalfFloatType,
+    });
+
+    // Pass 1: Base render
     const renderPass = new RenderPass(scene, camera);
     composer.addPass(renderPass);
 
-    retroPass = new ShaderPass(createRetroDitherShader());
-    retroPass.uniforms.resolution.value.set(window.innerWidth, window.innerHeight);
-    composer.addPass(retroPass);
+    // Pass 2: Ambient Occlusion (n8ao)
+    try {
+        n8aoPass = new N8AOPostPass(scene, camera, w, h);
+        n8aoPass.configuration.halfRes = true;
+        n8aoPass.configuration.screenSpaceRadius = true;
+        n8aoPass.configuration.aoRadius = 64;
+        n8aoPass.configuration.distanceFalloff = 0.3;
+        n8aoPass.configuration.intensity = 1.0;
+        composer.addPass(n8aoPass);
+        console.log('[scene] N8AO ambient occlusion enabled');
+    } catch (err) {
+        console.warn('[scene] N8AO failed to initialize:', err.message);
+        n8aoPass = null;
+    }
+
+    // Pass 3: Effects (bloom + SMAA + tone mapping)
+    const bloom = new BloomEffect({
+        blendFunction: BlendFunction.ADD,
+        mipmapBlur: true,
+        luminanceThreshold: 1.0,
+        luminanceSmoothing: 0.3,
+        intensity: 0.5,
+    });
+
+    const smaa = new SMAAEffect({ preset: SMAAPreset.ULTRA });
+
+    const toneMapping = new ToneMappingEffect({
+        mode: ToneMappingMode.ACES_FILMIC,
+    });
+
+    const mainEffectPass = new EffectPass(camera, bloom, smaa, toneMapping);
+    composer.addPass(mainEffectPass);
+
+    // Pass 4: Retro dither (optional, toggleable)
+    retroEffect = new RetroDitherEffect();
+    retroEffectPass = new EffectPass(camera, retroEffect);
+    retroEffectPass.enabled = retroFxEnabled;
+    composer.addPass(retroEffectPass);
+
+    console.log('[scene] Post-processing pipeline ready (bloom, SMAA, ACES, retro dither)');
 }
 
-function createRetroDitherShader() {
-    return {
-        uniforms: {
-            tDiffuse: { value: null },
-            resolution: { value: new THREE.Vector2(1, 1) },
-            time: { value: 0 },
-            pixelSize: { value: 1.75 },
-            colorLevels: { value: 26 },
-            ditherStrength: { value: 0.58 },
-            scanlineStrength: { value: 0.018 },
-            vignetteStrength: { value: 0.035 },
-            brightness: { value: 1.32 },
-            saturation: { value: 0.9 },
-        },
-        vertexShader: `
-            varying vec2 vUv;
-            void main() {
-                vUv = uv;
-                gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-            }
-        `,
-        fragmentShader: `
-            uniform sampler2D tDiffuse;
-            uniform vec2 resolution;
-            uniform float time;
-            uniform float pixelSize;
-            uniform float colorLevels;
-            uniform float ditherStrength;
-            uniform float scanlineStrength;
-            uniform float vignetteStrength;
-            uniform float brightness;
-            uniform float saturation;
-
-            varying vec2 vUv;
-
-            float bayer4(vec2 p) {
-                vec2 fc = mod(floor(p), 4.0);
-                float idx = fc.x + fc.y * 4.0;
-
-                if (idx < 0.5) return 0.0 / 16.0;
-                if (idx < 1.5) return 8.0 / 16.0;
-                if (idx < 2.5) return 2.0 / 16.0;
-                if (idx < 3.5) return 10.0 / 16.0;
-
-                if (idx < 4.5) return 12.0 / 16.0;
-                if (idx < 5.5) return 4.0 / 16.0;
-                if (idx < 6.5) return 14.0 / 16.0;
-                if (idx < 7.5) return 6.0 / 16.0;
-
-                if (idx < 8.5) return 3.0 / 16.0;
-                if (idx < 9.5) return 11.0 / 16.0;
-                if (idx < 10.5) return 1.0 / 16.0;
-                if (idx < 11.5) return 9.0 / 16.0;
-
-                if (idx < 12.5) return 15.0 / 16.0;
-                if (idx < 13.5) return 7.0 / 16.0;
-                if (idx < 14.5) return 13.0 / 16.0;
-                return 5.0 / 16.0;
-            }
-
-            void main() {
-                vec2 pixelStep = max(vec2(1.0), vec2(pixelSize));
-                vec2 uv = floor(vUv * resolution / pixelStep) * pixelStep / resolution;
-
-                vec3 color = texture2D(tDiffuse, uv).rgb;
-                color *= brightness;
-                color = clamp(color, 0.0, 1.0);
-                float luma = dot(color, vec3(0.299, 0.587, 0.114));
-                color = mix(vec3(luma), color, saturation);
-
-                float threshold = bayer4(gl_FragCoord.xy) - 0.5;
-                color = floor(color * colorLevels + threshold * ditherStrength) / colorLevels;
-                color = clamp(color, 0.0, 1.0);
-
-                float scan = sin((uv.y * resolution.y + time * 75.0) * 0.92) * 0.5 + 0.5;
-                color *= 1.0 - scanlineStrength * scan;
-
-                float dist = distance(vUv, vec2(0.5));
-                float vignette = 1.0 - smoothstep(0.34, 0.84, dist);
-                color *= mix(1.0 - vignetteStrength, 1.0, vignette);
-
-                gl_FragColor = vec4(color, 1.0);
-            }
-        `,
-    };
-}
-
-function installRetroFxToggle() {
-    window.toggleRetroFx = () => {
+function installToggles() {
+    window.DEBUG = window.DEBUG || {};
+    window.DEBUG.toggleRetroFx = () => {
         retroFxEnabled = !retroFxEnabled;
+        if (retroEffectPass) retroEffectPass.enabled = retroFxEnabled;
         console.info(`[scene] Retro FX ${retroFxEnabled ? 'enabled' : 'disabled'}`);
         return retroFxEnabled;
+    };
+    window.DEBUG.toggleAO = () => {
+        aoEnabled = !aoEnabled;
+        if (n8aoPass) n8aoPass.enabled = aoEnabled;
+        console.info(`[scene] Ambient Occlusion ${aoEnabled ? 'enabled' : 'disabled'}`);
+        return aoEnabled;
     };
 }
 
 function onResize() {
     if (!camera || !renderer) return;
 
-    camera.aspect = window.innerWidth / window.innerHeight;
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+
+    camera.aspect = w / h;
     camera.updateProjectionMatrix();
-    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setSize(w, h);
 
     if (composer) {
-        composer.setSize(window.innerWidth, window.innerHeight);
-    }
-    if (retroPass) {
-        retroPass.uniforms.resolution.value.set(window.innerWidth, window.innerHeight);
+        composer.setSize(w, h);
     }
 }
 
@@ -350,16 +459,116 @@ function animate() {
         }
     }
 
-    if (retroPass) {
-        retroPass.uniforms.time.value = elapsed;
+    // Update interaction hover highlights
+    interaction.update(delta, elapsed);
+
+    // Update retro shader time uniform
+    if (retroEffect) {
+        retroEffect.time = elapsed;
     }
 
-    if (retroFxEnabled && composer) {
-        composer.render();
+    // Always render through the composer — passes are toggled individually
+    if (composer) {
+        composer.render(delta);
     } else {
         renderer.render(scene, camera);
     }
 }
+
+// --- Retro Dither Effect (pmndrs/postprocessing Effect subclass) ---
+
+class RetroDitherEffect extends Effect {
+    constructor() {
+        super('RetroDitherEffect', retroDitherFragment, {
+            uniforms: new Map([
+                ['resolution', new THREE.Uniform(new THREE.Vector2(window.innerWidth, window.innerHeight))],
+                ['time', new THREE.Uniform(0)],
+                ['pixelSize', new THREE.Uniform(1.75)],
+                ['colorLevels', new THREE.Uniform(26.0)],
+                ['ditherStrength', new THREE.Uniform(0.58)],
+                ['scanlineStrength', new THREE.Uniform(0.018)],
+                ['vignetteStrength', new THREE.Uniform(0.035)],
+                ['brightness', new THREE.Uniform(1.32)],
+                ['saturation', new THREE.Uniform(0.9)],
+            ]),
+        });
+    }
+
+    get time() {
+        return this.uniforms.get('time').value;
+    }
+    set time(value) {
+        this.uniforms.get('time').value = value;
+    }
+
+    update(_renderer, _inputBuffer, _deltaTime) {
+        const res = this.uniforms.get('resolution');
+        res.value.set(window.innerWidth, window.innerHeight);
+    }
+}
+
+const retroDitherFragment = /* glsl */`
+    uniform vec2 resolution;
+    uniform float time;
+    uniform float pixelSize;
+    uniform float colorLevels;
+    uniform float ditherStrength;
+    uniform float scanlineStrength;
+    uniform float vignetteStrength;
+    uniform float brightness;
+    uniform float saturation;
+
+    float bayer4(vec2 p) {
+        vec2 fc = mod(floor(p), 4.0);
+        float idx = fc.x + fc.y * 4.0;
+
+        if (idx < 0.5) return 0.0 / 16.0;
+        if (idx < 1.5) return 8.0 / 16.0;
+        if (idx < 2.5) return 2.0 / 16.0;
+        if (idx < 3.5) return 10.0 / 16.0;
+
+        if (idx < 4.5) return 12.0 / 16.0;
+        if (idx < 5.5) return 4.0 / 16.0;
+        if (idx < 6.5) return 14.0 / 16.0;
+        if (idx < 7.5) return 6.0 / 16.0;
+
+        if (idx < 8.5) return 3.0 / 16.0;
+        if (idx < 9.5) return 11.0 / 16.0;
+        if (idx < 10.5) return 1.0 / 16.0;
+        if (idx < 11.5) return 9.0 / 16.0;
+
+        if (idx < 12.5) return 15.0 / 16.0;
+        if (idx < 13.5) return 7.0 / 16.0;
+        if (idx < 14.5) return 13.0 / 16.0;
+        return 5.0 / 16.0;
+    }
+
+    void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor) {
+        vec2 pixelStep = max(vec2(1.0), vec2(pixelSize));
+        vec2 snappedUv = floor(uv * resolution / pixelStep) * pixelStep / resolution;
+
+        vec3 color = texture2D(inputBuffer, snappedUv).rgb;
+        color *= brightness;
+        color = clamp(color, 0.0, 1.0);
+        float luma = dot(color, vec3(0.299, 0.587, 0.114));
+        color = mix(vec3(luma), color, saturation);
+
+        float threshold = bayer4(gl_FragCoord.xy) - 0.5;
+        color = floor(color * colorLevels + threshold * ditherStrength) / colorLevels;
+        color = clamp(color, 0.0, 1.0);
+
+        float scan = sin((snappedUv.y * resolution.y + time * 75.0) * 0.92) * 0.5 + 0.5;
+        color *= 1.0 - scanlineStrength * scan;
+
+        float dist = distance(uv, vec2(0.5));
+        float vignette = 1.0 - smoothstep(0.34, 0.84, dist);
+        color *= mix(1.0 - vignetteStrength, 1.0, vignette);
+
+        outputColor = vec4(color, inputColor.a);
+    }
+`;
+
+// --- Input ---
 
 function bindInputListeners() {
     window.addEventListener('keydown', (event) => {

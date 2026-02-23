@@ -1,5 +1,11 @@
 /**
- * Mixamo Auto-Rig Pipeline
+ * DEPRECATED — Feb 2026
+ * Abandoned in favor of Anything World API (see anything-world-rig.ts).
+ * Kept for reference only. The REST API marker coordinate space is opaque
+ * and mesh-dependent, making reliable automated placement impossible.
+ *
+ * ---
+ * Mixamo Auto-Rig Pipeline (original docs below)
  *
  * End-to-end headless pipeline:
  * 1. Playwright login → capture Adobe OAuth bearer token

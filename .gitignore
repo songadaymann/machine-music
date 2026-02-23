@@ -43,3 +43,6 @@ public/environments/
 
 # cached soul.md files for stress tests
 test/souls/
+
+# licensed/purchased assets (not for version control)
+human-materials-ignore/

@@ -1,7 +1,6 @@
 import { randomUUID } from "crypto";
 import {
   ALL_PRESENCE_STATES,
-  ARENA_RADIUS_M,
   MOVEMENT_SPEED_MPS,
   REMOVED_ACTION_TYPES,
   type WayfindingAction,
@@ -62,6 +61,15 @@ export class WayfindingReducer {
     return this.ensurePositionState(agent);
   }
 
+  /** Override the default random spawn with a specific position (e.g. parcel center). */
+  setSpawnPosition(agentId: string, x: number, z: number): void {
+    const runtime = this.positionByAgentId.get(agentId);
+    if (runtime && !runtime.hasSpawnedExplicitly) {
+      runtime.x = Number(x.toFixed(2));
+      runtime.z = Number(z.toFixed(2));
+    }
+  }
+
   tick(nowMs: number): void {
     for (const [agentId, runtime] of this.positionByAgentId) {
       if (!runtime.movementCompletesAt) continue;
@@ -71,7 +79,10 @@ export class WayfindingReducer {
     }
   }
 
-  getState(agent: WayfindingAgent): AgentPositionView {
+  getState(
+    agent: WayfindingAgent,
+    parcelInfo?: { parcelId: string | null; parcelBounds: { minX: number; maxX: number; minZ: number; maxZ: number } | null }
+  ): AgentPositionView {
     const runtime = this.ensurePositionState(agent);
     this.enforcePresenceGuardrails(runtime);
     return buildPositionView({
@@ -79,6 +90,8 @@ export class WayfindingReducer {
       allRuntimeStates: this.positionByAgentId.values(),
       events: this.wayfindingEvents,
       allowedPresenceStates: this.resolveAllowedPresenceStates(runtime),
+      parcelId: parcelInfo?.parcelId ?? null,
+      parcelBounds: parcelInfo?.parcelBounds ?? null,
     });
   }
 
@@ -112,21 +125,32 @@ export class WayfindingReducer {
     const now = Date.now();
 
     switch (action.type) {
+      case "SPAWN_AT": {
+        if (runtime.hasSpawnedExplicitly) {
+          return reject("already_spawned");
+        }
+
+        runtime.x = Number(action.x.toFixed(2));
+        runtime.z = Number(action.z.toFixed(2));
+        runtime.locomotionState = "idle";
+        runtime.hasSpawnedExplicitly = true;
+        runtime.updatedAt = new Date().toISOString();
+
+        this.emitEvent("bot_spawned", agent, {
+          toX: runtime.x,
+          toZ: runtime.z,
+        });
+        return accept();
+      }
+
       case "MOVE_TO": {
         // Reject if already in motion
         if (runtime.movementCompletesAt && now < Date.parse(runtime.movementCompletesAt)) {
           return reject("movement_in_progress");
         }
 
-        // Clamp target to arena bounds
-        let tx = action.x;
-        let tz = action.z;
-        const distFromOrigin = Math.sqrt(tx * tx + tz * tz);
-        if (distFromOrigin > ARENA_RADIUS_M) {
-          const scale = ARENA_RADIUS_M / distFromOrigin;
-          tx *= scale;
-          tz *= scale;
-        }
+        const tx = Number(action.x.toFixed(2));
+        const tz = Number(action.z.toFixed(2));
 
         // Already at destination?
         const dx = tx - runtime.x;
@@ -156,6 +180,37 @@ export class WayfindingReducer {
           toZ: tz,
           travelSeconds,
           completesAt,
+        });
+        return accept();
+      }
+
+      case "GO_HOME": {
+        const parcelCenter = this.deps.getParcelCenter(agent.id);
+        if (!parcelCenter) {
+          return reject("no_parcel_assigned");
+        }
+
+        // Cancel any in-progress movement
+        runtime.movementFromX = null;
+        runtime.movementFromZ = null;
+        runtime.movementToX = null;
+        runtime.movementToZ = null;
+        runtime.movementStartedAt = null;
+        runtime.movementCompletesAt = null;
+        runtime.movementTravelSeconds = 0;
+
+        const fromX = runtime.x;
+        const fromZ = runtime.z;
+        runtime.x = Number(parcelCenter.x.toFixed(2));
+        runtime.z = Number(parcelCenter.z.toFixed(2));
+        runtime.locomotionState = "idle";
+        runtime.updatedAt = new Date().toISOString();
+
+        this.emitEvent("bot_teleported_home", agent, {
+          fromX,
+          fromZ,
+          toX: runtime.x,
+          toZ: runtime.z,
         });
         return accept();
       }
@@ -268,11 +323,9 @@ export class WayfindingReducer {
       return existing;
     }
 
-    // Spawn at random position within arena radius (uniform distribution)
-    const angle = Math.random() * 2 * Math.PI;
-    const r = ARENA_RADIUS_M * Math.sqrt(Math.random());
-    const spawnX = Number((Math.cos(angle) * r).toFixed(2));
-    const spawnZ = Number((Math.sin(angle) * r).toFixed(2));
+    // Default spawn at origin (overridden by setSpawnPosition with parcel center)
+    const spawnX = 0;
+    const spawnZ = 0;
 
     const next: AgentPositionState = {
       agentId: agent.id,
@@ -285,6 +338,7 @@ export class WayfindingReducer {
       presenceUntil: null,
       holdUntil: null,
       updatedAt: new Date().toISOString(),
+      hasSpawnedExplicitly: false,
       movementFromX: null,
       movementFromZ: null,
       movementToX: null,

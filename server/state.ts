@@ -10,6 +10,7 @@ import {
   type WayfindingActionResult,
 } from "./wayfinding-runtime";
 import { RitualRuntime, type RitualPublicView } from "./ritual";
+import { ParcelRegistry, type Parcel, type ParcelRegistrySnapshot } from "./parcels";
 
 // --- Types ---
 
@@ -342,6 +343,7 @@ class State {
   creativeSessions: Map<string, CreativeSession> = new Map(); // sessionId -> session
   sessionByAgentId: Map<string, string> = new Map(); // agentId -> sessionId
   private wayfinding: WayfindingRuntime;
+  private parcelRegistry: ParcelRegistry;
   private ritual: RitualRuntime;
   private tickIntervalId: ReturnType<typeof setInterval> | null = null;
   epoch: EpochContext;
@@ -383,8 +385,13 @@ class State {
       updatedAt: null,
       votes: null,
     }));
+    this.parcelRegistry = new ParcelRegistry();
     this.wayfinding = new WayfindingRuntime({
       getAgentById: (agentId) => this.getAgentById(agentId),
+      getParcelCenter: (agentId) => {
+        const parcel = this.parcelRegistry.getParcelForAgent(agentId);
+        return parcel ? parcel.center : null;
+      },
       broadcast: (event, data) => this.broadcast(event, data),
     });
 
@@ -459,6 +466,13 @@ class State {
     this.tokenIndex.set(token, id);
     this.nameIndex.set(name, id);
     this.wayfinding.ensureAgentState(agent);
+
+    // Auto-assign a free parcel and spawn at its center
+    const parcel = this.parcelRegistry.assignFreeParcel(id, name);
+    if (parcel) {
+      this.wayfinding.setSpawnPosition(id, parcel.center.x, parcel.center.z);
+    }
+
     return agent;
   }
 
@@ -1131,11 +1145,32 @@ class State {
   // --- Wayfinding ---
 
   getWayfindingState(agent: Agent): AgentPositionView {
-    return this.wayfinding.getState(agent);
+    const parcel = this.parcelRegistry.getParcelForAgent(agent.id);
+    return this.wayfinding.getState(agent, {
+      parcelId: parcel?.id ?? null,
+      parcelBounds: parcel?.bounds ?? null,
+    });
   }
 
   submitWayfindingAction(agent: Agent, action: WayfindingAction): WayfindingActionResult {
     return this.wayfinding.submitAction(agent, action);
+  }
+
+  // --- Parcels ---
+
+  getParcelForAgent(agentId: string): Parcel | null {
+    return this.parcelRegistry.getParcelForAgent(agentId);
+  }
+
+  getParcelSnapshot(): ParcelRegistrySnapshot {
+    return this.parcelRegistry.getSnapshot();
+  }
+
+  checkBuildRights(
+    agentId: string,
+    output: Record<string, unknown>
+  ): { allowed: true } | { allowed: false; reason: string } {
+    return this.parcelRegistry.checkBuildRights(agentId, output);
   }
 
   // --- SSE ---
@@ -1449,6 +1484,7 @@ class State {
     }));
 
     this.wayfinding.reset();
+    this.parcelRegistry.reset();
 
     this.epoch.startedAt = new Date();
 

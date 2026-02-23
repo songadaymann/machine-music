@@ -132,8 +132,56 @@ export async function updateGlobal(items) {
             clone.scale.setScalar(clamp(placement.scale, 0.1, 10));
         }
 
-        objectGroup.add(clone);
+        // Wrap in LOD for distance-based detail reduction
+        const lod = wrapInLOD(clone);
+        lod.position.copy(clone.position);
+        lod.rotation.copy(clone.rotation);
+        lod.scale.copy(clone.scale);
+        clone.position.set(0, 0, 0);
+        clone.rotation.set(0, 0, 0);
+        clone.scale.set(1, 1, 1);
+        objectGroup.add(lod);
     }
+}
+
+function wrapInLOD(clone) {
+    const lod = new THREE.LOD();
+
+    // Level 0: full detail (0-30 units)
+    lod.addLevel(clone, 0);
+
+    // Level 1: colored box proxy (30-100 units)
+    const box = new THREE.Box3().setFromObject(clone);
+    const size = new THREE.Vector3();
+    box.getSize(size);
+    const proxyGeo = new THREE.BoxGeometry(
+        Math.max(size.x, 0.2),
+        Math.max(size.y, 0.2),
+        Math.max(size.z, 0.2)
+    );
+    let proxyColor = 0x888888;
+    clone.traverse(child => {
+        if (child.isMesh && child.material?.color && proxyColor === 0x888888) {
+            proxyColor = child.material.color.getHex();
+        }
+    });
+    const proxyMat = new THREE.MeshStandardMaterial({
+        color: proxyColor,
+        roughness: 0.8,
+    });
+    const proxy = new THREE.Mesh(proxyGeo, proxyMat);
+    proxy.castShadow = true;
+    const center = new THREE.Vector3();
+    box.getCenter(center);
+    proxy.position.copy(center);
+    const proxyGroup = new THREE.Group();
+    proxyGroup.add(proxy);
+    lod.addLevel(proxyGroup, 30);
+
+    // Level 2: hidden (100+ units)
+    lod.addLevel(new THREE.Group(), 100);
+
+    return lod;
 }
 
 function disposeGroup() {

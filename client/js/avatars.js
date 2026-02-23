@@ -9,7 +9,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js';
 import { getSlotPosition } from './instruments.js';
-import { getScene, getClock, onUpdate } from './scene.js';
+import { getScene, getClock, getCamera, onUpdate } from './scene.js';
 import { getArrivalSpawnPoint, getQueueRestPoint } from './world-layout.js';
 
 // --- Config ---
@@ -766,7 +766,9 @@ function restoreAvatarRuntime(avatar, snapshot) {
     if (!avatar || !snapshot) return;
     avatar.group.position.copy(snapshot.position);
     avatar.group.rotation.y = snapshot.rotationY;
-    avatar.targetPosition = snapshot.targetPosition;
+    avatar.targetPosition = snapshot.targetPosition
+        ? new THREE.Vector3(snapshot.targetPosition.x, snapshot.targetPosition.y, snapshot.targetPosition.z)
+        : null;
     avatar.slotId = snapshot.slotId;
     avatar.slotType = snapshot.slotType;
     avatar.jamSessionId = snapshot.jamSessionId || null;
@@ -997,6 +999,24 @@ export function removeFromSession(botName) {
     switchAction(avatar, 'walk');
 }
 
+// --- Assign avatar to a spatial music placement ---
+
+export function assignToPlacement(botName, position) {
+    const avatar = ensureAvatar(botName);
+    // Only walk to the instrument if the avatar isn't already assigned to a session
+    // and doesn't already have a target (avoid overriding ongoing movement)
+    if (avatar.jamSessionId || avatar.targetPosition) return;
+
+    const offset = new THREE.Vector3(0, 0, 1.2); // stand slightly in front of the instrument
+    const target = new THREE.Vector3(
+        Number(position?.x) || 0,
+        0,
+        Number(position?.z) || 0
+    ).add(offset);
+    avatar.targetPosition = target;
+    switchAction(avatar, 'walk');
+}
+
 // --- Drama: overwrite sequences ---
 
 export function playOverwriteDrama(attackerName, victimName) {
@@ -1136,12 +1156,25 @@ export function switchAction(avatar, actionName) {
 // --- Update loop (called every frame) ---
 
 export function init() {
+    let frameCount = 0;
     onUpdate((delta, elapsed) => {
+        frameCount++;
         const nowMs = performance.now();
+        const cam = getCamera();
         for (const [, avatar] of avatars) {
-            // Update animation mixer
+            // Update animation mixer (throttle for distant avatars)
             if (avatar.mixer) {
-                avatar.mixer.update(delta);
+                let shouldUpdate = true;
+                if (cam && avatar.group) {
+                    const dist = cam.position.distanceTo(avatar.group.position);
+                    // >50 units: update every other frame
+                    if (dist > 50 && frameCount % 2 !== 0) shouldUpdate = false;
+                    // >100 units: update every 4th frame
+                    if (dist > 100 && frameCount % 4 !== 0) shouldUpdate = false;
+                }
+                if (shouldUpdate) {
+                    avatar.mixer.update(delta);
+                }
             }
 
             // Skip movement during drama sequences

@@ -1,4 +1,4 @@
-import { ARENA_RADIUS_M, MOVEMENT_SPEED_MPS } from "./wayfinding";
+import { MOVEMENT_SPEED_MPS } from "./wayfinding";
 import type { WayfindingPresenceState } from "./wayfinding";
 import type {
   AgentPositionState,
@@ -11,6 +11,8 @@ interface BuildPositionViewInput {
   allRuntimeStates: Iterable<AgentPositionState>;
   events: ReadonlyArray<WayfindingEvent>;
   allowedPresenceStates: WayfindingPresenceState[];
+  parcelId: string | null;
+  parcelBounds: { minX: number; maxX: number; minZ: number; maxZ: number } | null;
 }
 
 function computeMovementProgress(runtime: AgentPositionState): number {
@@ -50,15 +52,18 @@ export function buildPositionView(
       presenceState: input.runtime.presenceState,
       systemState: input.runtime.systemState,
       presenceUntil: input.runtime.presenceUntil,
+      hasSpawnedExplicitly: input.runtime.hasSpawnedExplicitly,
       movementToX: input.runtime.movementToX,
       movementToZ: input.runtime.movementToZ,
       movementCompletesAt: input.runtime.movementCompletesAt,
       movementProgressPct: computeMovementProgress(input.runtime),
+      parcelId: input.parcelId,
+      parcelBounds: input.parcelBounds,
     },
     others,
     policy: {
       allowedPresenceStates: [...input.allowedPresenceStates],
-      arenaRadiusM: ARENA_RADIUS_M,
+      worldBounded: false,
       speedMps: MOVEMENT_SPEED_MPS,
     },
     recentEvents: input.events.slice(-12).map((event) => ({
