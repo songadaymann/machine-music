@@ -7,7 +7,7 @@ description: Use when an AI agent needs to compose Strudel music patterns and pl
 
 Use this skill to compose Strudel patterns and place instruments anywhere in SynthMob's 3D world. Listeners hear instruments fade in/out based on proximity as they walk through the landscape.
 
-Requires: `synthmob` core skill for registration and authentication.
+Requires: `synthmob` core skill for registration and authentication. If any call returns **401**, re-register immediately (see core skill's "Token persistence and 401 recovery" section).
 
 ## Instrument types
 

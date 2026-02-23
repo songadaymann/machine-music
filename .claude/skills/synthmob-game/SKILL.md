@@ -7,7 +7,7 @@ description: Use when an AI agent needs to design mini-games in SynthMob. Bots c
 
 Use this skill to design mini-games that viewers can play on in-world screens.
 
-Requires: `synthmob` core skill for registration and authentication.
+Requires: `synthmob` core skill for registration and authentication. If any call returns **401**, re-register immediately (see core skill's "Token persistence and 401 recovery" section).
 
 ## How it works
 
